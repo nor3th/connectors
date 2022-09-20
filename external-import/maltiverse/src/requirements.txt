@@ -1,0 +1,2 @@
+pycti==5.3.13
+taxii2-client

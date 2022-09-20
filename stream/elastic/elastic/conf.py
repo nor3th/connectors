@@ -16,6 +16,8 @@ defaults: dict = {
         "entity_description": "Elastic detection engine results via connector",
         "entity_name": "Elastic CTI Cluster",
         "live_stream_id": "ChangeMe",
+        "live_stream_listen_delete": True,
+        "live_stream_no_dependencies": True,
     },
     "elastic": {
         "signals": {

@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextContainer
 from pycti import OpenCTIConnectorHelper
-from reportimporter.constants import (
+from src.reportimporter.constants import (
     ENTITY_CLASS,
     MIME_CSV,
     MIME_HTML,
@@ -24,8 +24,10 @@ from reportimporter.constants import (
     RESULT_FORMAT_RANGE,
     RESULT_FORMAT_TYPE,
 )
-from reportimporter.models import Entity, Observable
-from reportimporter.util import library_mapping
+from src.reportimporter.models import Entity, Observable
+from src.reportimporter.util import library_mapping
+
+from pycti.connector.new.libs.connector_utils import get_logger
 
 
 class ReportParser(object):
@@ -35,12 +37,12 @@ class ReportParser(object):
 
     def __init__(
         self,
-        helper: OpenCTIConnectorHelper,
+        log_level: str,
         entity_list: List[Entity],
         observable_list: List[Observable],
     ):
 
-        self.helper = helper
+        self.logger = get_logger("ReportParser", log_level)
         self.entity_list = entity_list
         self.observable_list = observable_list
 
@@ -60,17 +62,17 @@ class ReportParser(object):
 
     def _is_whitelisted(self, regex_list: List[Pattern], ind_match: str):
         for regex in regex_list:
-            self.helper.log_debug(f"Filter regex '{regex}' for value '{ind_match}'")
+            self.logger.debug(f"Filter regex '{regex}' for value '{ind_match}'")
             result = regex.search(ind_match)
             if result:
-                self.helper.log_debug(f"Value {ind_match} is whitelisted with {regex}")
+                self.logger.debug(f"Value {ind_match} is whitelisted with {regex}")
                 return True
         return False
 
     def _post_parse_observables(
         self, ind_match: str, observable: Observable, match_range: Tuple
     ) -> Dict:
-        self.helper.log_debug(f"Observable match: {ind_match}")
+        self.logger.debug(f"Observable match: {ind_match}")
 
         if self._is_whitelisted(observable.filter_regex, ind_match):
             return {}
@@ -91,7 +93,7 @@ class ReportParser(object):
         for entity in self.entity_list:
             list_matches = self._extract_entity(entity, list_matches, data)
 
-        self.helper.log_debug(f"Text: '{data}' -> extracts {list_matches}")
+        self.logger.debug(f"Text: '{data}' -> extracts {list_matches}")
         return list_matches
 
     def _parse_pdf(self, file_data: IO) -> Dict[str, Dict]:
@@ -141,7 +143,7 @@ class ReportParser(object):
         if not os.path.isfile(file_path):
             raise IOError(f"File path is not a file: {file_path}")
 
-        self.helper.log_info(f"Parsing report {file_path} {file_type}")
+        self.logger.info(f"Parsing report {file_path} {file_type}")
 
         try:
             with open(file_path, "rb") as file_data:
@@ -194,7 +196,7 @@ class ReportParser(object):
         elif observable.detection_option == OBSERVABLE_DETECTION_LIBRARY:
             lookup_function = self.library_lookup.get(observable.stix_target, None)
             if not lookup_function:
-                self.helper.log_error(
+                self.logger.error(
                     f"Selected library function is not implemented: {observable.iocfinder_function}"
                 )
                 return {}
@@ -206,13 +208,13 @@ class ReportParser(object):
                 if match_str in data:
                     start = data.index(match_str)
                 elif match_str in data.lower():
-                    self.helper.log_debug(
+                    self.logger.debug(
                         f"External library manipulated the extracted value '{match_str}' from the "
                         f"original text '{data}' to lower case"
                     )
                     start = data.lower().index(match_str)
                 else:
-                    self.helper.log_error(
+                    self.logger.error(
                         f"The extracted text '{match_str}' is not part of the original text '{data}'. "
                         f"Please open a GitHub issue to report this problem!"
                     )
@@ -256,11 +258,11 @@ class ReportParser(object):
                     list_matches, match_index, entity.omit_match_in
                 )
                 if skip_val:
-                    self.helper.log_debug(
+                    self.logger.debug(
                         f"Skipping Entity '{match}', it is part of an omitted field '{entity.omit_match_in}' \"{skip_val}\""
                     )
                 else:
-                    self.helper.log_debug(
+                    self.logger.debug(
                         f"Entity match: '{match}' of regex: '{regex_list}'"
                     )
                     end_index.add(match_index)
@@ -271,7 +273,7 @@ class ReportParser(object):
         for observable_key in observable_keys:
             if observable_key in list_matches:
                 del list_matches[observable_key]
-                self.helper.log_debug(
+                self.logger.debug(
                     f"Value {observable_key} is also matched by entity {entity.name}"
                 )
 

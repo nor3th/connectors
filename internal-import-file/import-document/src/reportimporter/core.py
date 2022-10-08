@@ -5,44 +5,38 @@ from datetime import datetime
 from typing import Callable, Dict, List
 
 import stix2
-import yaml
+from stix2 import Bundle
+
 from pycti import (
-    OpenCTIConnectorHelper,
     Report,
     StixCoreRelationship,
-    get_config_variable,
 )
 from pydantic import BaseModel
-from reportimporter.constants import (
+from src.reportimporter.constants import (
     ENTITY_CLASS,
     OBSERVABLE_CLASS,
     RESULT_FORMAT_CATEGORY,
     RESULT_FORMAT_MATCH,
     RESULT_FORMAT_TYPE,
 )
-from reportimporter.models import Entity, EntityConfig, Observable
-from reportimporter.report_parser import ReportParser
-from reportimporter.util import MyConfigParser
+from src.reportimporter.models import Entity, EntityConfig, Observable
+from src.reportimporter.report_parser import ReportParser
+from src.reportimporter.util import MyConfigParser
+
+from pycti.connector.new.connector_types.connector_base_types import InternalFileInputConnector
+from pycti.connector.new.connector_types.connector_settings import ConnectorConfig
 
 
-class ReportImporter:
-    def __init__(self) -> None:
+class ImportDocumentConfig(ConnectorConfig):
+    create_indicator: bool = True
+
+
+class ImportDocument(InternalFileInputConnector):
+    config = ImportDocumentConfig
+
+    def init(self) -> None:
         # Instantiate the connector helper from config
         base_path = os.path.dirname(os.path.abspath(__file__))
-        config_file_path = base_path + "/../config.yml"
-        config = (
-            yaml.load(open(config_file_path), Loader=yaml.FullLoader)
-            if os.path.isfile(config_file_path)
-            else {}
-        )
-
-        self.helper = OpenCTIConnectorHelper(config)
-        self.create_indicator = get_config_variable(
-            "IMPORT_DOCUMENT_CREATE_INDICATOR",
-            ["import_document", "create_indicator"],
-            config,
-        )
-        self.current_file = None
 
         # Load Entity and Observable configs
         observable_config_file = base_path + "/config/observable_config.ini"
@@ -62,79 +56,53 @@ class ReportImporter:
         else:
             raise FileNotFoundError(f"{entity_config_file} was not found")
 
-        self.file = None
+    def run(self, file_path: str, file_mime: str, entity_id: str, app_config: ImportDocumentConfig) -> (str, List[Bundle]):
+        self.logger.info("Processing new message")
 
-    def _process_message(self, data: Dict) -> str:
-        self.helper.log_info("Processing new message")
-        file_name = self._download_import_file(data)
-        entity_id = data.get("entity_id", None)
-        bypass_validation = data.get("bypass_validation", False)
         entity = (
-            self.helper.api.stix_domain_object.read(id=entity_id)
+            self.api.stix_domain_object.read(id=entity_id)
             if entity_id is not None
             else None
         )
-        if self.helper.get_only_contextual() and entity is None:
+        if self.base_config.contextual_only and entity is None:
             return "Connector is only contextual and entity is not defined. Nothing was imported"
 
         # Retrieve entity set from OpenCTI
         entity_indicators = self._collect_stix_objects(self.entity_config)
 
         # Parse report
-        parser = ReportParser(self.helper, entity_indicators, self.observable_config)
+        parser = ReportParser(self.base_config.log_level, entity_indicators, self.observable_config)
 
-        if data["file_id"].startswith("import/global"):
-            file_data = open(file_name, "rb").read()
-            file_data_encoded = base64.b64encode(file_data)
-            self.file = {
-                "name": data["file_id"].replace("import/global/", ""),
-                "data": file_data_encoded,
-                "mime_type": "application/pdf",
-            }
-        parsed = parser.run_parser(file_name, data["file_mime"])
-        os.remove(file_name)
+        file_data = open(file_path, "rb").read()
+        file_data_encoded = base64.b64encode(file_data)
+        self.file = {
+            "name": file_path,
+            "data": file_data_encoded,
+            "mime_type": file_mime,
+        }
+        parsed = parser.run_parser(file_path, file_mime)
 
         if not parsed:
-            return "No information extracted from report"
+            return "No information extracted from report", []
 
         # Process parsing results
-        self.helper.log_debug("Results: {}".format(parsed))
-        observables, entities = self._process_parsing_results(parsed, entity)
+        self.logger.debug("Results: {}".format(parsed))
+        observables, entities = self._process_parsing_results(parsed, entity, app_config)
         # Send results to OpenCTI
-        observable_cnt = self._process_parsed_objects(
-            entity, observables, entities, bypass_validation, file_name
+        bundles = self._process_parsed_objects(
+            entity, observables, entities, file_path
         )
-        entity_cnt = len(entities)
 
-        if self.helper.get_validate_before_import() and not bypass_validation:
-            return "Generated bundle sent for validation"
-        else:
-            return (
-                f"Sent {observable_cnt} observables, 1 report update and {entity_cnt} entity connections as stix "
-                f"bundle for worker import "
-            )
-
-    def start(self) -> None:
-        self.helper.listen(self._process_message)
-
-    def _download_import_file(self, data: Dict) -> str:
-        file_fetch = data["file_fetch"]
-        file_uri = self.helper.opencti_url + file_fetch
-
-        # Downloading and saving file to connector
-        self.helper.log_info("Importing the file " + file_uri)
-        file_name = os.path.basename(file_fetch)
-        file_content = self.helper.api.fetch_opencti_file(file_uri, True)
-
-        with open(file_name, "wb") as f:
-            f.write(file_content)
-
-        return file_name
+        self.logger.info("Finished")
+        return (
+                   f"Sent {len(observables)} observables, 1 report update and {len(entities)} entity connections as stix "
+                   f"bundle for worker import "
+               ), bundles
 
     def _collect_stix_objects(
         self, entity_config_list: List[EntityConfig]
     ) -> List[Entity]:
-        base_func = self.helper.api
+        base_func = self.api
         entity_list = []
         for entity_config in entity_config_list:
             func_format = entity_config.stix_class
@@ -145,7 +113,7 @@ class ReportImporter:
                     filters=entity_config.filter,
                     customAttributes=entity_config.custom_attributes,
                 )
-                entity_list += entity_config.convert_to_entity(entries, self.helper)
+                entity_list += entity_config.convert_to_entity(entries, self.base_config.log_level)
             except AttributeError:
                 e = "Selected parser format is not supported: {}".format(func_format)
                 raise NotImplementedError(e)
@@ -166,7 +134,7 @@ class ReportImporter:
         return config_list
 
     def _process_parsing_results(
-        self, parsed: List[Dict], context_entity: Dict
+        self, parsed: List[Dict], context_entity: Dict, app_config: ImportDocumentConfig
     ) -> (List[Dict], List[str]):
         observables = []
         entities = []
@@ -185,11 +153,11 @@ class ReportImporter:
         for match in parsed:
             if match[RESULT_FORMAT_TYPE] == OBSERVABLE_CLASS:
                 if match[RESULT_FORMAT_CATEGORY] == "Vulnerability.name":
-                    entity = self.helper.api.vulnerability.read(
+                    entity = self.api.vulnerability.read(
                         filters={"key": "name", "values": [match[RESULT_FORMAT_MATCH]]}
                     )
                     if entity is None:
-                        self.helper.log_info(
+                        self.logger.info(
                             f"Vulnerability with name '{match[RESULT_FORMAT_MATCH]}' could not be "
                             f"found. Is the CVE Connector activated?"
                         )
@@ -197,14 +165,14 @@ class ReportImporter:
 
                     entities.append(entity["standard_id"])
                 elif match[RESULT_FORMAT_CATEGORY] == "Attack-Pattern.x_mitre_id":
-                    entity = self.helper.api.attack_pattern.read(
+                    entity = self.api.attack_pattern.read(
                         filters={
                             "key": "x_mitre_id",
                             "values": [match[RESULT_FORMAT_MATCH]],
                         }
                     )
                     if entity is None:
-                        self.helper.log_info(
+                        self.logger.info(
                             f"AttackPattern with MITRE ID '{match[RESULT_FORMAT_MATCH]}' could not be "
                             f"found. Is the MITRE Connector activated?"
                         )
@@ -218,7 +186,7 @@ class ReportImporter:
                             number=match[RESULT_FORMAT_MATCH],
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -227,7 +195,7 @@ class ReportImporter:
                             value=match[RESULT_FORMAT_MATCH],
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -236,7 +204,7 @@ class ReportImporter:
                             value=match[RESULT_FORMAT_MATCH],
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -245,7 +213,7 @@ class ReportImporter:
                             name=match[RESULT_FORMAT_MATCH],
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -254,7 +222,7 @@ class ReportImporter:
                             value=match[RESULT_FORMAT_MATCH],
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -263,7 +231,7 @@ class ReportImporter:
                             value=match[RESULT_FORMAT_MATCH],
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -272,7 +240,7 @@ class ReportImporter:
                             value=match[RESULT_FORMAT_MATCH],
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -281,7 +249,7 @@ class ReportImporter:
                             hashes={"MD5": match[RESULT_FORMAT_MATCH]},
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -290,7 +258,7 @@ class ReportImporter:
                             hashes={"SHA-1": match[RESULT_FORMAT_MATCH]},
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -299,7 +267,7 @@ class ReportImporter:
                             hashes={"SHA-256": match[RESULT_FORMAT_MATCH]},
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -308,7 +276,7 @@ class ReportImporter:
                             key=match[RESULT_FORMAT_MATCH],
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -317,7 +285,7 @@ class ReportImporter:
                             value=match[RESULT_FORMAT_MATCH],
                             object_marking_refs=object_markings,
                             custom_properties={
-                                "x_opencti_create_indicator": self.create_indicator,
+                                "x_opencti_create_indicator": app_config.create_indicator,
                                 "created_by_ref": author,
                             },
                         )
@@ -327,7 +295,7 @@ class ReportImporter:
             elif match[RESULT_FORMAT_TYPE] == ENTITY_CLASS:
                 entities.append(match[RESULT_FORMAT_MATCH])
             else:
-                self.helper.log_info("Odd data received: {}".format(match))
+                self.logger.info("Odd data received: {}".format(match))
 
         return observables, entities
 
@@ -336,14 +304,13 @@ class ReportImporter:
         entity: Dict,
         observables: List,
         entities_ids: List,
-        bypass_validation: bool,
         file_name: str,
-    ) -> int:
+    ) -> List[Bundle]:
         if len(observables) == 0 and len(entities_ids) == 0:
-            return 0
+            return []
         observables_ids = [o["id"] for o in observables]
         if entity is not None:
-            entity_stix_bundle = self.helper.api.stix2.export_entity(
+            entity_stix_bundle = self.api.stix2.export_entity(
                 entity["entity_type"], entity["id"]
             )
             if len(entity_stix_bundle["objects"]) == 0:
@@ -458,14 +425,8 @@ class ReportImporter:
             observables.append(report)
         bundles_sent = []
         if len(observables) > 0:
-            bundle = stix2.Bundle(objects=observables, allow_custom=True).serialize()
-            bundles_sent = self.helper.send_stix2_bundle(
-                bundle=bundle,
-                update=True,
-                bypass_validation=bypass_validation,
-                file_name=file_name + ".json",
-                entity_id=entity["id"] if entity is not None else None,
-            )
+            bundle = stix2.Bundle(objects=observables, allow_custom=True)
+            bundles_sent.append(bundle)
 
         # len() - 1 because the report update increases the count by one
-        return len(bundles_sent) - 1
+        return bundles_sent

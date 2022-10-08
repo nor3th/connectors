@@ -4,9 +4,11 @@ import re
 from json import JSONDecodeError
 from typing import Any, Dict, List, Optional, Pattern
 
+from pycti.connector.new.libs.connector_utils import get_logger
+
 from pycti import OpenCTIConnectorHelper
 from pydantic import BaseModel, validator
-from reportimporter.constants import (
+from src.reportimporter.constants import (
     COMMENT_INDICATOR,
     CONFIG_PATH,
     OBSERVABLE_DETECTION_CUSTOM_REGEX,
@@ -129,8 +131,10 @@ class EntityConfig(BaseModel):
             raise ValueError(f"filter received an invalid json string: {e}")
 
     def convert_to_entity(
-        self, opencti_response: List[Dict], helper: OpenCTIConnectorHelper
+        self, opencti_response: List[Dict], log_level: str
     ) -> List[Entity]:
+        logger = get_logger("ReportParser", log_level)
+
         entities = []
         for item in opencti_response:
             _id = item.get("standard_id")
@@ -148,7 +152,7 @@ class EntityConfig(BaseModel):
             for value in item_values:
                 # Remove SDO names which are defined to be excluded in the entity config
                 if value.lower() in self.exclude_values:
-                    helper.log_debug(
+                    logger.debug(
                         f"Entity: Discarding value '{value}' due to explicit exclusion as defined in {self.exclude_values}"
                     )
                     continue
@@ -159,7 +163,7 @@ class EntityConfig(BaseModel):
                     compiled_re = re.compile(value, re.IGNORECASE)
                     indicators.append(compiled_re)
                 except re.error as e:
-                    helper.log_error(
+                    logger.error(
                         f"Entity {self.name}: Unable to create regex from value '{value}' ({e})"
                     )
 

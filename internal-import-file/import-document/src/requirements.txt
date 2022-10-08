@@ -8,3 +8,4 @@ ioc-finder==7.2.4
 dateparser==1.0.0
 iocextract
 pyparsing==3.0.9
+schedule==1.1.0

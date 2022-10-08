@@ -61,6 +61,8 @@ class MitreConnector(ExternalInputConnector, HttpMixin):
 
         for entity in entities:
             self.logger.info(f"Retrieving {entity}")
+            if entity == "":
+                continue
             data = self.get(entity)
             data_with_confidence = self.add_confidence_to_bundle_objects(data)
             obj = parse(data_with_confidence, allow_custom=True)

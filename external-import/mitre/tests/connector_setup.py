@@ -18,6 +18,10 @@ class MitreTest(ConnectorTest):
         monkeypatch.setenv("connector_interval", "2")
         monkeypatch.setenv("connector_testing", "True")
         monkeypatch.setenv("app_enterprise_file_url", "https://raw.githubusercontent.com/oasis-open/cti-stix-common-objects/main/objects/location/location--011a9d8e-75eb-475a-a861-6998e9968287.json")
+        monkeypatch.setenv("app_mobile_attack_file_url", "")
+        monkeypatch.setenv("app_ics_attack_file_url", "")
+        monkeypatch.setenv("app_capec_file_url", "")
+
 
     def verify(self, bundle: Bundle):
         bundle_objects = bundle["objects"]

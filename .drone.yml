@@ -8,14 +8,6 @@ steps:
     commands:
       - sleep 100
 
-  - name: connector-import-document
-    image: python:3.10
-    commands:
-      - pip3 install -r test-requirements.txt --user
-      - cd internal-import-file/import-document
-      - pip3 install -r src/requirements.txt --user
-      - python3 -m pytest -p pycti.connector.tests.pytest_pycti --no-header -vv --disable-warnings --drone
-
   - name: connector-mitre
     image: python:3.10
     commands:
@@ -23,6 +15,14 @@ steps:
       - cd external-import/mitre
       - pip3 install -r src/requirements.txt --user
       - python3 -m pytest -p pycti.connector.tests.pytest_pycti --no-header -vv --disable-warnings  --drone
+
+  - name: connector-import-document
+    image: python:3.10
+    commands:
+      - pip3 install -r test-requirements.txt --user
+      - cd internal-import-file/import-document
+      - pip3 install -r src/requirements.txt --user
+      - python3 -m pytest -p pycti.connector.tests.pytest_pycti --no-header -vv --disable-warnings --drone
 
 #  - name: slack
 #    image: plugins/slack

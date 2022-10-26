@@ -2,14 +2,13 @@ import uuid
 
 from stix2 import Bundle
 from src.mitre import MitreConnector
-from pycti.connector.new.tests.test_class import ConnectorTest
+from pycti.connector.tests.test_class import ConnectorTest
 
 
 class MitreTest(ConnectorTest):
     connector = MitreConnector
 
     def _setup(self, monkeypatch):
-        monkeypatch.setenv("opencti_broker", "pika")
         monkeypatch.setenv("opencti_ssl_verify", "False")
         monkeypatch.setenv("connector_id", str(uuid.uuid4()))
         monkeypatch.setenv("connector_name", "MITRE Connector")

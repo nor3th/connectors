@@ -6,11 +6,11 @@ from typing import List
 
 from stix2 import Bundle, parse
 
-from pycti.connector.new.connector_types.connector_base_types import (
+from pycti.connector.connector_types.connector_base_types import (
     ExternalInputConnector,
 )
-from pycti.connector.new.connector_types.connector_settings import ConnectorConfig
-from pycti.connector.new.libs.mixins.http import HttpMixin
+from pycti.connector.connector_types.connector_settings import ConnectorConfig
+from pycti.connector.libs.mixins.http import HttpMixin
 
 
 class MitreConfig(ConnectorConfig):

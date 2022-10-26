@@ -1,8 +1,9 @@
 import uuid
 
-from stix2 import Bundle
-from src.mitre import MitreConnector
 from pycti.connector.tests.test_class import ConnectorTest
+from stix2 import Bundle
+
+from src.mitre import MitreConnector
 
 
 class MitreTest(ConnectorTest):

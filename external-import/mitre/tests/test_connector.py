@@ -1,11 +1,12 @@
 import base64
 import json
 
-from pytest import fixture
-from pycti.connector.tests.test_library import wait_for_test_to_finish
-from .connector_setup import CONNECTORS
-from stix2 import Bundle
 from pycti.connector.libs.opencti_schema import WorkerMessage
+from pycti.connector.tests.test_library import wait_for_test_to_finish
+from pytest import fixture
+from stix2 import Bundle
+
+from .connector_setup import CONNECTORS
 
 
 @fixture(params=CONNECTORS)

@@ -5,26 +5,20 @@ from datetime import datetime
 from typing import Callable, Dict, List
 
 import stix2
+from pycti import Report, StixCoreRelationship
+from pycti.connector.connector_types.connector_base_types import \
+    InternalFileInputConnector
+from pycti.connector.connector_types.connector_settings import ConnectorConfig
+from pydantic import BaseModel
 from stix2 import Bundle
 
-from pycti import (
-    Report,
-    StixCoreRelationship,
-)
-from pydantic import BaseModel
-from src.reportimporter.constants import (
-    ENTITY_CLASS,
-    OBSERVABLE_CLASS,
-    RESULT_FORMAT_CATEGORY,
-    RESULT_FORMAT_MATCH,
-    RESULT_FORMAT_TYPE,
-)
+from src.reportimporter.constants import (ENTITY_CLASS, OBSERVABLE_CLASS,
+                                          RESULT_FORMAT_CATEGORY,
+                                          RESULT_FORMAT_MATCH,
+                                          RESULT_FORMAT_TYPE)
 from src.reportimporter.models import Entity, EntityConfig, Observable
 from src.reportimporter.report_parser import ReportParser
 from src.reportimporter.util import MyConfigParser
-
-from pycti.connector.new.connector_types.connector_base_types import InternalFileInputConnector
-from pycti.connector.new.connector_types.connector_settings import ConnectorConfig
 
 
 class ImportDocumentConfig(ConnectorConfig):
@@ -97,7 +91,7 @@ class ImportDocument(InternalFileInputConnector):
         return (
                    f"Sent {len(observables)} observables, 1 report update and {len(entities)} entity connections as stix "
                    f"bundle for worker import "
-               ), bundles
+               ), [bundles]
 
     def _collect_stix_objects(
         self, entity_config_list: List[EntityConfig]

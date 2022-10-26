@@ -1,18 +1,17 @@
 import uuid
 from typing import Optional
 
-from pycti import StixMetaTypes, StixCyberObservableTypes
+from pycti import StixCyberObservableTypes
 from stix2 import Bundle
 from dateutil.parser import parse
 from src.reportimporter.core import ImportDocument
-from pycti.connector.new.tests.test_class import ConnectorTest
+from pycti.connector.tests.test_class import ConnectorTest
 
 
 class ImportDocumentTest(ConnectorTest):
     connector = ImportDocument
 
     def _setup(self, monkeypatch):
-        monkeypatch.setenv("opencti_broker", "pika")
         monkeypatch.setenv("opencti_ssl_verify", "False")
         monkeypatch.setenv("connector_name", "Test-Import-Document")
         monkeypatch.setenv("connector_id", str(uuid.uuid4()))

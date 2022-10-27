@@ -91,7 +91,7 @@ class ImportDocument(InternalFileInputConnector):
         return (
                    f"Sent {len(observables)} observables, 1 report update and {len(entities)} entity connections as stix "
                    f"bundle for worker import "
-               ), [bundles]
+               ), bundles
 
     def _collect_stix_objects(
         self, entity_config_list: List[EntityConfig]

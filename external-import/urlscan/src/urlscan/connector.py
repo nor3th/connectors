@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Iterator, NamedTuple, Optional
+from typing import Iterator, NamedTuple
 from urllib.parse import urlparse
 
 import pycti
@@ -51,13 +51,13 @@ class UrlscanConnector:
             "URLSCAN_URL",
             ["urlscan", "url"],
             config,
-        )  # type: Optional[str]
+        )
 
         urlscan_api_key = get_config_variable(
             "URLSCAN_API_KEY",
             ["urlscan", "api_key"],
             config,
-        )  # type: Optional[str]
+        )
 
         self._create_indicators = get_config_variable(
             "URLSCAN_CREATE_INDICATORS",
@@ -113,7 +113,15 @@ class UrlscanConnector:
             obs1 = self._create_url_observable(url, "Urlscan.io URL")
             bundle_objects.extend(filter(None, [*obs1]))
 
+            # This could potentially check for just "blob:"
+            if url.startswith("blob:http"):
+                url = url[5:]
+
             hostname = urlparse(url).hostname
+            if hostname is None:
+                log.warning("Could not parse url: %s", hostname)
+                continue
+
             if validators.domain(hostname):
                 obs2 = self._create_domain_observable(hostname, "Urlscan.io Domain")
                 bundle_objects.extend(filter(None, [*obs2]))

@@ -1,6 +1,7 @@
 import base64
 import datetime
 import os
+import re
 import sys
 import time
 
@@ -8,7 +9,14 @@ import requests
 import stix2
 import yaml
 from dateutil.parser import parse
-from pycti import Indicator, OpenCTIConnectorHelper, get_config_variable
+from pycti import (
+    Indicator,
+    Note,
+    OpenCTIConnectorHelper,
+    Report,
+    StixCoreRelationship,
+    get_config_variable,
+)
 from requests.auth import HTTPBasicAuth
 
 
@@ -55,25 +63,27 @@ class Mandiant:
             ["connector", "update_existing_data"],
             config,
         )
+        self.mandiant_report_types_ignored = get_config_variable(
+            "MANDIANT_REPORT_TYPES_IGNORED",
+            ["mandiant", "report_types_ignored"],
+            config,
+        ).split(",")
         self.added_after = int(parse(self.mandiant_import_start_date).timestamp())
 
         self.identity = self.helper.api.identity.create(
             type="Organization",
             name="Mandiant",
-            description="Mandiant is recognized by enterprises, governments and law enforcement agencies worldwide as the market leader in threat intelligence and expertise gained on the frontlines of cyber security. ",
+            description="Mandiant is recognized by enterprises, governments and law enforcement agencies worldwide as the market leader in threat intelligence and expertise gained on the frontlines of cyber security.",
         )
-
-        self.marking = self.helper.api.marking_definition.create(
-            definition_type="COMMERCIAL",
-            definition="MANDIANT",
-            x_opencti_order=99,
-            x_opencti_color="#a01526",
-        )
-
         # Init variables
         self.auth_token = None
         self._get_token()
         self.cache = {}
+
+    def cleanhtml(self, raw_html):
+        CLEANR = re.compile("<.*?>|&([a-z0-9]+|#[0-9]{1,6}|#x[0-9a-f]{1,6});")
+        cleantext = re.sub(CLEANR, "", raw_html)
+        return cleantext
 
     def get_interval(self):
         return int(self.mandiant_interval) * 60
@@ -81,7 +91,7 @@ class Mandiant:
     def _get_token(self):
         headers = {
             "accept": "application/json",
-            "x-app-name": "opencti-connector-5.3.13",
+            "x-app-name": "opencti-connector-5.5.2",
         }
         r = requests.post(
             self.mandiant_api_url + "/token",
@@ -101,11 +111,21 @@ class Mandiant:
             return None
         return object[key]
 
+    def _process_aliases(self, object):
+        if "aliases" in object:
+            aliases = []
+            for alias in object["aliases"]:
+                aliases.append(re.sub("[\(\[].*?[\)\]]", "", alias["name"]).strip())
+            object["aliases"] = aliases
+            return self._redacted_as_none("aliases", object)
+        return None
+
     def _query(
         self,
         url,
         limit=None,
         offset=None,
+        next=None,
         start_epoch=None,
         end_epoch=None,
         retry=False,
@@ -117,13 +137,15 @@ class Mandiant:
         headers = {
             "authorization": "Bearer " + self.auth_token,
             "accept": app_header,
-            "x-app-name": "opencti-connector-5.3.5",
+            "x-app-name": "opencti-connector-5.5.2",
         }
         params = {}
         if limit is not None:
             params["limit"] = str(limit)
         if offset is not None:
             params["offset"] = str(offset)
+        if next is not None:
+            params["next"] = str(next)
         if start_epoch is not None:
             params["start_epoch"] = str(int(start_epoch))
         if end_epoch is not None:
@@ -134,7 +156,7 @@ class Mandiant:
             return r.json()
         elif (r.status_code == 401 or r.status_code == 403) and not retry:
             self._get_token()
-            return self._query(url, limit, offset, start_epoch, end_epoch, True)
+            return self._query(url, limit, offset, next, start_epoch, end_epoch, True)
         elif r.status_code == 401 or r.status_code == 403:
             raise ValueError("Query failed, permission denied")
         else:
@@ -145,15 +167,11 @@ class Mandiant:
             raise ValueError("An unknown error occurred")
 
     def _getreportpdf(self, url, retry=False):
-
         headers = {
             "accept": "application/pdf",
-            "X-App-Name": "opencti",
+            "x-app-name": "opencti-connector-5.5.2",
             "authorization": "Bearer " + self.auth_token,
         }
-
-        self.helper.log_info("REPORT URL " + url)
-
         r = requests.get(url, headers=headers)
         if r.status_code == 200:
             self.helper.log_info("Report PDF fetched successfully")
@@ -165,63 +183,6 @@ class Mandiant:
             raise ValueError("Query failed, permission denied")
         else:
             self.helper.log_info("An error has ocurred getting PDF report")
-
-    def _querynext(
-        self,
-        url,
-        limit=None,
-        start_epoch=None,
-        next_pointer=None,
-        retry=False,
-    ):
-        headers = {
-            "authorization": "Bearer " + self.auth_token,
-            "accept": "application/json",
-            "x-app-name": "opencti-connector-5.3.4",
-        }
-
-        url_base = url + "?"
-
-        # self.helper.log_debug("URL URL "+ url_base)
-        if limit is not None:
-            url_base = url_base + "limit=" + str(limit)
-            self.helper.log_info("URL URL + LIMIT " + url_base)
-
-        else:
-            url_base = url_base + "limit=" + str(100)
-            self.helper.log_info("URL URL + LIMIT " + url_base)
-
-        if next_pointer is not None:
-            url_base = url_base + "&" + "next=" + str(next_pointer)
-            self.helper.log_info("URL URL + NEXT " + url_base)
-
-        pattern = "%Y-%m-%d %H:%M:%S"
-        epoch_start_date = int(
-            time.mktime(
-                time.strptime(
-                    str(self.mandiant_import_start_date + " 00:00:00"), pattern
-                )
-            )
-        )
-        #         epoch_start_date = int(time.mktime(time.strptime(self.mandiant_import_start_date+" 00:00:00",pattern)))
-        url_base = url_base + "&" + "start_epoch=" + str(epoch_start_date)
-        self.helper.log_info("URL BASE " + url_base)
-
-        r = requests.get(url_base, headers=headers)
-        if r.status_code == 200:
-            return r.json()
-        elif (r.status_code == 401 or r.status_code == 403) and not retry:
-            self._get_token()
-            #             return self._query(url, limit, offset, start_epoch, end_epoch, True)
-            return self._querynext(url, limit, next_pointer, True)
-        elif r.status_code == 401 or r.status_code == 403:
-            raise ValueError("Query failed, permission denied")
-        else:
-            result = r.json()
-            if result and "error" in result:
-                if "future" in result["error"]:
-                    return None
-            raise ValueError("An unknown error occurred")
 
     def _import_actor(self, work_id, current_state):
         url = self.mandiant_api_url + "/v4/actor"
@@ -238,7 +199,7 @@ class Mandiant:
                 and result["threat-actors"] is not None
                 and len(result["threat-actors"]) > 0
             ):
-                actors = []
+                objects = []
                 for actor in result["threat-actors"]:
                     try:
                         if self.mandiant_threat_actor_as_intrusion_set:
@@ -249,13 +210,11 @@ class Mandiant:
                                     "description", actor
                                 ),
                                 modified=self._redacted_as_none("last_updated", actor),
-                                aliases=self._redacted_as_none("aliases", actor),
+                                aliases=self._process_aliases(actor),
                                 confidence=self.helper.connect_confidence_level,
                                 created_by_ref=self.identity["standard_id"],
-                                object_marking_refs=[
-                                    stix2.TLP_AMBER.get("id"),
-                                    self.marking["standard_id"],
-                                ],
+                                object_marking_refs=[stix2.TLP_AMBER.get("id")],
+                                allow_custom=True,
                             )
                         else:
                             stix_actor = stix2.ThreatActor(
@@ -265,20 +224,249 @@ class Mandiant:
                                     "description", actor
                                 ),
                                 modified=self._redacted_as_none("last_updated", actor),
-                                aliases=self._redacted_as_none("aliases", actor),
+                                aliases=self._process_aliases(actor),
                                 confidence=self.helper.connect_confidence_level,
                                 created_by_ref=self.identity["standard_id"],
-                                object_marking_refs=[
-                                    stix2.TLP_AMBER.get("id"),
-                                    self.marking["standard_id"],
-                                ],
+                                object_marking_refs=[stix2.TLP_AMBER.get("id")],
+                                allow_custom=True,
                             )
-                        actors.append(stix_actor)
+                        objects.append(stix_actor)
+                        # Get the actor
+                        result_actor = self._query(url + "/" + actor["id"])
+                        if "industries" in result_actor:
+                            for industry in result_actor["industries"]:
+                                stix_identity = stix2.Identity(
+                                    id=industry["id"],
+                                    created_by_ref=self.identity["standard_id"],
+                                    name=industry["name"],
+                                    identity_class="class",
+                                    allow_custom=True,
+                                )
+                                stix_relationship = stix2.Relationship(
+                                    id=StixCoreRelationship.generate_id(
+                                        "targets",
+                                        stix_actor.get("id"),
+                                        stix_identity.get("id"),
+                                        industry["first_seen"]
+                                        if "first_seen" in industry
+                                        else None,
+                                        parse(industry["last_seen"])
+                                        + datetime.timedelta(seconds=1)
+                                        if "last_seen" in industry
+                                        else None,
+                                    ),
+                                    relationship_type="targets",
+                                    source_ref=stix_actor.get("id"),
+                                    target_ref=stix_identity.get("id"),
+                                    start_time=industry["first_seen"]
+                                    if "first_seen" in industry
+                                    else None,
+                                    stop_time=parse(industry["last_seen"])
+                                    + datetime.timedelta(seconds=1)
+                                    if "last_seen" in industry
+                                    else None,
+                                    allow_custom=True,
+                                    created_by_ref=self.identity["standard_id"],
+                                )
+                                objects.append(stix_identity)
+                                objects.append(stix_relationship)
+                        if "cve" in result_actor:
+                            for cve in result_actor["cve"]:
+                                stix_vulnerability = stix2.Vulnerability(
+                                    id=cve["id"],
+                                    created_by_ref=self.identity["standard_id"],
+                                    name=cve["cve_id"],
+                                    allow_custom=True,
+                                )
+                                stix_relationship = stix2.Relationship(
+                                    id=StixCoreRelationship.generate_id(
+                                        "targets",
+                                        stix_actor.get("id"),
+                                        stix_vulnerability.get("id"),
+                                        cve["first_seen"]
+                                        if "first_seen" in cve
+                                        else None,
+                                        parse(cve["last_seen"])
+                                        + datetime.timedelta(seconds=1)
+                                        if "last_seen" in cve
+                                        else None,
+                                    ),
+                                    relationship_type="targets",
+                                    source_ref=stix_actor.get("id"),
+                                    target_ref=stix_vulnerability.get("id"),
+                                    start_time=cve["first_seen"]
+                                    if "first_seen" in cve
+                                    else None,
+                                    stop_time=parse(cve["last_seen"])
+                                    + datetime.timedelta(seconds=1)
+                                    if "last_seen" in cve
+                                    else None,
+                                    allow_custom=True,
+                                    created_by_ref=self.identity["standard_id"],
+                                )
+                                objects.append(stix_vulnerability)
+                                objects.append(stix_relationship)
+                        if "locations" in result_actor:
+                            if "source" in result_actor["locations"]:
+                                for source in result_actor["locations"]["source"]:
+                                    if "country" in source:
+                                        stix_location = stix2.Location(
+                                            id=source["country"]["id"],
+                                            name=source["country"]["name"],
+                                            country=source["country"]["name"],
+                                            allow_custom=True,
+                                            custom_properties={
+                                                "x_opencti_location_type": "Country"
+                                            },
+                                            created_by_ref=self.identity["standard_id"],
+                                        )
+                                        stix_relationship = stix2.Relationship(
+                                            id=StixCoreRelationship.generate_id(
+                                                "originates-from",
+                                                stix_actor.get("id"),
+                                                stix_location.get("id"),
+                                                source["country"]["first_seen"]
+                                                if "first_seen" in source["country"]
+                                                else None,
+                                                parse(source["country"]["last_seen"])
+                                                + datetime.timedelta(seconds=1)
+                                                if "last_seen" in source["country"]
+                                                else None,
+                                            ),
+                                            relationship_type="originates-from",
+                                            source_ref=stix_actor.get("id"),
+                                            target_ref=stix_location.get("id"),
+                                            start_time=source["country"]["first_seen"]
+                                            if "first_seen" in source["country"]
+                                            else None,
+                                            stop_time=parse(
+                                                source["country"]["last_seen"]
+                                            )
+                                            + datetime.timedelta(seconds=1)
+                                            if "last_seen" in source["country"]
+                                            else None,
+                                            created_by_ref=self.identity["standard_id"],
+                                        )
+                                        objects.append(stix_location)
+                                        objects.append(stix_relationship)
+                            if "target" in result_actor["locations"]:
+                                for target in result_actor["locations"]["target"]:
+                                    if "country" in target:
+                                        stix_location = stix2.Location(
+                                            id=target["country"]["id"],
+                                            name=target["country"]["name"],
+                                            allow_custom=True,
+                                            country=target["country"]["name"],
+                                            custom_properties={
+                                                "x_opencti_location_type": "Country"
+                                            },
+                                            created_by_ref=self.identity["standard_id"],
+                                        )
+                                        stix_relationship = stix2.Relationship(
+                                            id=StixCoreRelationship.generate_id(
+                                                "targets",
+                                                stix_actor.get("id"),
+                                                stix_location.get("id"),
+                                                target["country"]["first_seen"]
+                                                if "first_seen" in target["country"]
+                                                else None,
+                                                parse(target["country"]["last_seen"])
+                                                + datetime.timedelta(seconds=1)
+                                                if "last_seen" in target["country"]
+                                                else None,
+                                            ),
+                                            relationship_type="targets",
+                                            source_ref=stix_actor.get("id"),
+                                            target_ref=stix_location.get("id"),
+                                            start_time=target["country"]["first_seen"]
+                                            if "first_seen" in target["country"]
+                                            else None,
+                                            stop_time=parse(
+                                                target["country"]["last_seen"]
+                                            )
+                                            + datetime.timedelta(seconds=1)
+                                            if "last_seen" in target["country"]
+                                            else None,
+                                            created_by_ref=self.identity["standard_id"],
+                                        )
+                                        objects.append(stix_location)
+                                        objects.append(stix_relationship)
+                        if "malware" in result_actor:
+                            for malware in result_actor["malware"]:
+                                stix_malware = stix2.Malware(
+                                    id=malware["id"],
+                                    is_family=True,
+                                    created_by_ref=self.identity["standard_id"],
+                                    name=malware["name"],
+                                    allow_custom=True,
+                                )
+                                stix_relationship = stix2.Relationship(
+                                    id=StixCoreRelationship.generate_id(
+                                        "uses",
+                                        stix_actor.get("id"),
+                                        stix_malware.get("id"),
+                                        malware["first_seen"]
+                                        if "first_seen" in malware
+                                        else None,
+                                        parse(malware["last_seen"])
+                                        + datetime.timedelta(seconds=1)
+                                        if "last_seen" in malware
+                                        else None,
+                                    ),
+                                    relationship_type="uses",
+                                    source_ref=stix_actor.get("id"),
+                                    target_ref=stix_malware.get("id"),
+                                    start_time=malware["first_seen"]
+                                    if "first_seen" in malware
+                                    else None,
+                                    stop_time=parse(malware["last_seen"])
+                                    + datetime.timedelta(seconds=1)
+                                    if "last_seen" in malware
+                                    else None,
+                                    created_by_ref=self.identity["standard_id"],
+                                )
+                                objects.append(stix_malware)
+                                objects.append(stix_relationship)
+                        if "tool" in result_actor:
+                            for tool in result_actor["tool"]:
+                                stix_tool = stix2.Tool(
+                                    id=tool["id"],
+                                    created_by_ref=self.identity["standard_id"],
+                                    name=tool["name"],
+                                    allow_custom=True,
+                                )
+                                stix_relationship = stix2.Relationship(
+                                    id=StixCoreRelationship.generate_id(
+                                        "uses",
+                                        stix_actor.get("id"),
+                                        stix_tool.get("id"),
+                                        tool["first_seen"]
+                                        if "first_seen" in tool
+                                        else None,
+                                        parse(tool["last_seen"])
+                                        + datetime.timedelta(seconds=1)
+                                        if "last_seen" in tool
+                                        else None,
+                                    ),
+                                    relationship_type="uses",
+                                    source_ref=stix_actor.get("id"),
+                                    target_ref=stix_tool.get("id"),
+                                    start_time=tool["first_seen"]
+                                    if "first_seen" in tool
+                                    else None,
+                                    stop_time=parse(tool["last_seen"])
+                                    + datetime.timedelta(seconds=1)
+                                    if "last_seen" in tool
+                                    else None,
+                                    created_by_ref=self.identity["standard_id"],
+                                )
+                                objects.append(stix_tool)
+                                objects.append(stix_relationship)
                     except Exception as e:
                         self.helper.log_error(str(e))
                 self.helper.send_stix2_bundle(
                     stix2.Bundle(
-                        objects=actors,
+                        objects=objects,
                         allow_custom=True,
                     ).serialize(),
                     update=self.update_existing_data,
@@ -286,7 +474,6 @@ class Mandiant:
                 )
                 offset = offset + limit
                 current_state["actor"] = offset
-                self.helper.set_state(current_state)
             else:
                 no_more_result = True
         return current_state
@@ -294,7 +481,7 @@ class Mandiant:
     def _import_malware(self, work_id, current_state):
         url = self.mandiant_api_url + "/v4/malware"
         no_more_result = False
-        limit = 10
+        limit = 30
         offset = current_state["malware"]
         while no_more_result is False:
             self.helper.log_info(
@@ -306,7 +493,7 @@ class Mandiant:
                 and result["malware"] is not None
                 and len(result["malware"]) > 0
             ):
-                malwares = []
+                objects = []
                 for malware in result["malware"]:
                     try:
                         stix_malware = stix2.Malware(
@@ -315,28 +502,100 @@ class Mandiant:
                             name=self._redacted_as_none("name", malware),
                             description=self._redacted_as_none("description", malware),
                             modified=self._redacted_as_none("last_updated", malware),
-                            aliases=self._redacted_as_none("aliases", malware),
+                            aliases=self._process_aliases(malware),
                             confidence=self.helper.connect_confidence_level,
                             created_by_ref=self.identity["standard_id"],
-                            object_marking_refs=[
-                                stix2.TLP_AMBER.get("id"),
-                                self.marking["standard_id"],
-                            ],
+                            object_marking_refs=[stix2.TLP_AMBER.get("id")],
                         )
-                        malwares.append(stix_malware)
+                        objects.append(stix_malware)
+                        # Get the malware
+                        result_malware = self._query(url + "/" + malware["id"])
+                        if "industries" in result_malware:
+                            for industry in result_malware["industries"]:
+                                stix_identity = stix2.Identity(
+                                    id=industry["id"],
+                                    created_by_ref=self.identity["standard_id"],
+                                    name=industry["name"],
+                                    identity_class="class",
+                                    allow_custom=True,
+                                )
+                                stix_relationship = stix2.Relationship(
+                                    id=StixCoreRelationship.generate_id(
+                                        "targets",
+                                        stix_malware.get("id"),
+                                        stix_identity.get("id"),
+                                        industry["first_seen"]
+                                        if "first_seen" in industry
+                                        else None,
+                                        parse(industry["last_seen"])
+                                        + datetime.timedelta(seconds=1)
+                                        if "last_seen" in industry
+                                        else None,
+                                    ),
+                                    relationship_type="targets",
+                                    source_ref=stix_malware.get("id"),
+                                    target_ref=stix_identity.get("id"),
+                                    start_time=industry["first_seen"]
+                                    if "first_seen" in industry
+                                    else None,
+                                    stop_time=parse(industry["last_seen"])
+                                    + datetime.timedelta(seconds=1)
+                                    if "last_seen" in industry
+                                    else None,
+                                    allow_custom=True,
+                                    created_by_ref=self.identity["standard_id"],
+                                )
+                                objects.append(stix_identity)
+                                objects.append(stix_relationship)
+                        if "cve" in result_malware:
+                            for cve in result_malware["cve"]:
+                                stix_vulnerability = stix2.Vulnerability(
+                                    id=cve["id"],
+                                    created_by_ref=self.identity["standard_id"],
+                                    name=cve["cve_id"],
+                                    allow_custom=True,
+                                )
+                                stix_relationship = stix2.Relationship(
+                                    id=StixCoreRelationship.generate_id(
+                                        "targets",
+                                        result_malware.get("id"),
+                                        stix_vulnerability.get("id"),
+                                        cve["first_seen"]
+                                        if "first_seen" in cve
+                                        else None,
+                                        parse(cve["last_seen"])
+                                        + datetime.timedelta(seconds=1)
+                                        if "last_seen" in cve
+                                        else None,
+                                    ),
+                                    relationship_type="targets",
+                                    source_ref=result_malware.get("id"),
+                                    target_ref=stix_vulnerability.get("id"),
+                                    start_time=cve["first_seen"]
+                                    if "first_seen" in cve
+                                    else None,
+                                    stop_time=parse(cve["last_seen"])
+                                    + datetime.timedelta(seconds=1)
+                                    if "last_seen" in cve
+                                    else None,
+                                    allow_custom=True,
+                                    created_by_ref=self.identity["standard_id"],
+                                )
+                                objects.append(stix_vulnerability)
+                                objects.append(stix_relationship)
                     except Exception as e:
                         self.helper.log_error(str(e))
-                self.helper.send_stix2_bundle(
-                    stix2.Bundle(
-                        objects=malwares,
-                        allow_custom=True,
-                    ).serialize(),
-                    update=self.update_existing_data,
-                    work_id=work_id,
-                )
+                if len(objects) > 0:
+                    self.helper.send_stix2_bundle(
+                        stix2.Bundle(
+                            objects=objects,
+                            allow_custom=True,
+                        ).serialize(),
+                        update=self.update_existing_data,
+                        work_id=work_id,
+                    )
                 offset = offset + limit
                 current_state["malware"] = offset
-                self.helper.set_state(current_state)
             else:
                 no_more_result = True
         return current_state
@@ -347,14 +606,17 @@ class Mandiant:
         limit = 1000
         start_epoch = current_state["vulnerability"]
         end_epoch = start_epoch + 3600
+        next = None
         while no_more_result is False:
             self.helper.log_info(
                 "Iterating with start_epoch="
                 + str(start_epoch)
                 + ", end_epoch="
                 + str(end_epoch)
+                + ", next="
+                + str(next)
             )
-            result = self._query(url, limit, None, start_epoch, end_epoch)
+            result = self._query(url, limit, None, next, start_epoch, end_epoch)
             if (
                 result is not None
                 and result["vulnerability"] is not None
@@ -389,38 +651,45 @@ class Mandiant:
                         stix_vulnerability = stix2.Vulnerability(
                             id=vulnerability["id"],
                             name=self._redacted_as_none("cve_id", vulnerability),
-                            description=self._redacted_as_none(
-                                "description", vulnerability
+                            description=self.cleanhtml(
+                                self._redacted_as_none("description", vulnerability)
                             ),
                             created=self._redacted_as_none(
                                 "publish_date", vulnerability
                             ),
                             confidence=self.helper.connect_confidence_level,
                             created_by_ref=self.identity["standard_id"],
-                            object_marking_refs=[
-                                stix2.TLP_AMBER.get("id"),
-                                self.marking["standard_id"],
-                            ],
+                            object_marking_refs=[stix2.TLP_AMBER.get("id")],
                             allow_custom=True,
                             custom_properties=custom_properties,
                         )
                         vulnerabilities.append(stix_vulnerability)
                     except Exception as e:
                         self.helper.log_error(str(e))
-                self.helper.send_stix2_bundle(
-                    stix2.Bundle(
-                        objects=vulnerabilities,
-                        allow_custom=True,
-                    ).serialize(),
-                    update=self.update_existing_data,
-                    work_id=work_id,
-                )
+                if len(vulnerabilities) > 0:
+                    self.helper.send_stix2_bundle(
+                        stix2.Bundle(
+                            objects=vulnerabilities,
+                            allow_custom=True,
+                        ).serialize(),
+                        update=self.update_existing_data,
+                        work_id=work_id,
+                    )
             elif end_epoch > int(time.time()):
                 no_more_result = True
-            start_epoch = end_epoch
-            end_epoch = start_epoch + 3600
-            current_state["vulnerability"] = int(start_epoch)
-            self.helper.set_state(current_state)
+            if (
+                result is not None
+                and result["vulnerability"] is not None
+                and len(result["vulnerability"]) == 1000
+                and "next" in result
+                and len(result["next"]) > 0
+            ):
+                next = result["next"]
+            else:
+                next = None
+                start_epoch = end_epoch
+                end_epoch = start_epoch + 3600
+                current_state["vulnerability"] = int(start_epoch)
         return current_state
 
     def _import_indicator(self, work_id, current_state):
@@ -429,20 +698,23 @@ class Mandiant:
         limit = 1000
         start_epoch = current_state["indicator"]
         end_epoch = start_epoch + 3600
+        next = None
         while no_more_result is False:
             self.helper.log_info(
                 "Iterating with start_epoch="
                 + str(start_epoch)
                 + ", end_epoch="
                 + str(end_epoch)
+                + ", next="
+                + str(next)
             )
-            result = self._query(url, limit, None, start_epoch, end_epoch)
+            result = self._query(url, limit, None, next, start_epoch, end_epoch)
             if (
                 result is not None
                 and result["indicators"] is not None
                 and len(result["indicators"]) > 0
             ):
-                indicators = []
+                objects = []
                 for indicator in result["indicators"]:
                     try:
                         pattern = None
@@ -493,151 +765,124 @@ class Mandiant:
                                 ),
                                 confidence=self.helper.connect_confidence_level,
                                 created_by_ref=self.identity["standard_id"],
-                                object_marking_refs=[
-                                    stix2.TLP_AMBER.get("id"),
-                                    self.marking["standard_id"],
-                                ],
+                                object_marking_refs=[stix2.TLP_AMBER.get("id")],
                                 custom_properties={
                                     "x_opencti_main_observable_type": type,
                                     "x_opencti_create_observables": True,
                                 },
                             )
-                            indicators.append(stix_indicator)
+                            objects.append(stix_indicator)
+                            if "attributed_associations" in indicator:
+                                for attribution in indicator["attributed_associations"]:
+                                    attribution_id = (
+                                        attribution["id"].replace(
+                                            "threat-actor", "intrusion-set"
+                                        )
+                                        if self.mandiant_threat_actor_as_intrusion_set
+                                        else attribution["id"]
+                                    )
+                                    stix_relationship = stix2.Relationship(
+                                        id=StixCoreRelationship.generate_id(
+                                            "indicates",
+                                            stix_indicator.get("id"),
+                                            attribution_id,
+                                            indicator["first_seen"]
+                                            if "first_seen" in indicator
+                                            else None,
+                                            parse(indicator["last_seen"])
+                                            + datetime.timedelta(seconds=1)
+                                            if "last_seen" in indicator
+                                            else None,
+                                        ),
+                                        relationship_type="indicates",
+                                        source_ref=stix_indicator.get("id"),
+                                        target_ref=attribution_id,
+                                        start_time=indicator["first_seen"]
+                                        if "first_seen" in indicator
+                                        else None,
+                                        stop_time=parse(indicator["last_seen"])
+                                        + datetime.timedelta(seconds=1)
+                                        if "last_seen" in indicator
+                                        else None,
+                                        allow_custom=True,
+                                        created_by_ref=self.identity["standard_id"],
+                                    )
+                                    objects.append(stix_relationship)
                     except Exception as e:
                         self.helper.log_error(str(e))
-                self.helper.send_stix2_bundle(
-                    stix2.Bundle(
-                        objects=indicators,
-                        allow_custom=True,
-                    ).serialize(),
-                    update=self.update_existing_data,
-                    work_id=work_id,
-                )
+                if len(objects) > 0:
+                    self.helper.send_stix2_bundle(
+                        stix2.Bundle(
+                            objects=objects,
+                            allow_custom=True,
+                        ).serialize(),
+                        update=self.update_existing_data,
+                        work_id=work_id,
+                    )
             elif end_epoch > int(time.time()):
                 no_more_result = True
-            start_epoch = end_epoch
-            end_epoch = start_epoch + 3600
-            current_state["indicator"] = int(start_epoch)
-            self.helper.set_state(current_state)
+            if (
+                result is not None
+                and result["indicators"] is not None
+                and len(result["indicators"]) == 1000
+                and "next" in result
+                and len(result["next"]) > 0
+            ):
+                next = result["next"]
+            else:
+                next = None
+                start_epoch = end_epoch
+                end_epoch = start_epoch + 3600
+                current_state["indicator"] = int(start_epoch)
         return current_state
 
     def _import_report(self, work_id, current_state):
         url = self.mandiant_api_url + "/v4/reports"
         no_more_result = False
-        limit = 100
-        # current_state_count = current_state["report"]
-        # new_state_count = ""
-        next_pointer = current_state["report"]
+        limit = 1000
+        start_epoch = current_state["report"]
+        end_epoch = start_epoch + 3600
+        next = None
         while no_more_result is False:
-            self.helper.log_info("Iterating with next pointer" + next_pointer)
-
-            result = self._querynext(url, limit, next_pointer=next_pointer)
-            result_count = len(result["objects"])
             self.helper.log_info(
-                "Result of reports found "
-                + str(result.get("total_count"))
-                + " and to process "
-                + str(result_count)
+                "Iterating with start_epoch="
+                + str(start_epoch)
+                + ", end_epoch="
+                + str(end_epoch)
+                + ", next="
+                + str(next)
             )
-
+            result = self._query(url, limit, None, next, start_epoch, end_epoch)
             if (
                 result is not None
                 and result["objects"] is not None
-                and result_count > 0
+                and len(result["objects"]) > 0
             ):
-
                 for reportOut in result["objects"]:
-                    # #Ignoring
-                    # if reportOut.get("report_type") == "News Analysis":
-                    #     pass
-                    # else:
-
-                    url_report = (
-                        self.mandiant_api_url
-                        + "/v4/report/"
-                        + reportOut.get("report_id")
-                    )
-                    # self.helper.log_debug("Report Title "+reportOut["title"])
-                    report = self._query(
-                        url_report, app_header="application/stix+json;version=2.1"
-                    )
-                    self.helper.log_debug(
-                        "Processing report ID " + str(reportOut.get("report_id"))
-                    )
-                    # self.helper.log_debug(report)
-
-                    report_labels = []
-                    adding_sector_class = {"identity_class": "class"}
-
-                    # Removing the Mandiant entity
-                    for idx, each_object in enumerate(report.get("objects")):
+                    # Ignoring reports that are not listed in the parameters.
+                    if (
+                        reportOut.get("report_type")
+                        in self.mandiant_report_types_ignored
+                    ):
+                        pass
+                    elif reportOut.get("report_type") == "News Analysis":
                         try:
-                            if each_object.get(
-                                "type"
-                            ) == "marking-definition" and each_object.get(
-                                "definition"
-                            ).get(
-                                "statement"
-                            ):
-                                report.get("objects").pop(idx)
-                        except:
-                            pass
-
-                    # Removing the Mandiant entity
-                    for idx, each_object in enumerate(report.get("objects")):
-                        try:
-                            if (
-                                each_object.get("type") == "identity"
-                                and each_object.get("identity_class") == "organization"
-                            ):
-                                report.get("objects").pop(idx)
-
-                        except:
-                            pass
-
-                    # Updating the identities as sectors
-                    for each_object in report.get("objects"):
-                        if each_object.get("type") == "identity":
-                            each_object.update(adding_sector_class)
-                            report_labels.append(each_object.get("name"))
-
-                    # Threat actors as intrusion set
-                    if self.mandiant_threat_actor_as_intrusion_set:
-                        for each_object in report.get("objects"):
-                            try:
-                                if each_object.get("type") == "threat-actor":
-                                    each_object["type"] = "intrusion-set"
-                                    each_object["id"] = each_object.get("id").replace(
-                                        "threat-actor", "intrusion-set"
-                                    )
-                                elif each_object.get("type") == "relationship":
-                                    each_object["source_ref"] = each_object.get(
-                                        "source_ref"
-                                    ).replace("threat-actor", "intrusion-set")
-                                    each_object["target_ref"] = each_object.get(
-                                        "target_ref"
-                                    ).replace("threat-actor", "intrusion-set")
-                                elif each_object.get("type") == "report":
-                                    object_refs = []
-                                    for ref in each_object["object_refs"]:
-                                        object_refs.append(
-                                            ref.replace("threat-actor", "intrusion-set")
-                                        )
-                                    each_object["object_refs"] = object_refs
-                            except:
-                                pass
-
-                    # Adding the created by ref and getting the PDF report.
-                    for each_object in report.get("objects"):
-                        # Adding Sectors as labels for the report
-                        if each_object.get("type") == "report":
-                            each_object.update(
-                                {"created_by_ref": str(self.identity["standard_id"])}
+                            url_report = (
+                                self.mandiant_api_url
+                                + "/v4/report/"
+                                + reportOut.get("report_id")
                             )
-                            if report_labels:
-                                each_object.update({"labels": report_labels})
-
-                            # Fetching the PDF for the report
+                            report = self._query(url_report)
+                            self.helper.log_debug(
+                                "Processing report ID "
+                                + str(reportOut.get("report_id"))
+                            )
+                            bundle_objects = []
+                            publish_date = parse(report["publishDate"])
+                            report_id = Report.generate_id(
+                                report["reportId"], publish_date
+                            )
+                            file = None
                             try:
                                 report_pdf = self._getreportpdf(url_report)
                                 file_data_encoded = base64.b64encode(report_pdf)
@@ -647,49 +892,256 @@ class Mandiant:
                                     "data": file_data_encoded.decode("utf-8"),
                                     "mime_type": "application/pdf",
                                 }
-                                each_object.update({"x_opencti_files": [file]})
-
                             except Exception as e:
                                 self.helper.log_info(
                                     "Failed to get PDF report for ID "
                                     + str(reportOut.get("report_id"))
                                 )
                                 self.helper.log_info("ERROR: " + str(e))
-
-                    # Creating and sending the bundle to OCTI
-                    try:
-                        self.helper.log_debug(
-                            "Objects to be sent " + str(report.get("objects"))
-                        )
-                        self.helper.send_stix2_bundle(
-                            stix2.Bundle(
-                                objects=report.get("objects"),
+                            note = self.cleanhtml(report["isightComment"])
+                            note_id = Note.generate_id(publish_date, note)
+                            self.helper.log_debug("Note ID " + str(note_id))
+                            stix_note = stix2.Note(
+                                id=note_id,
+                                abstract="ANALYST COMMENT",
+                                content=note,
+                                created=publish_date,
+                                created_by_ref=self.identity["standard_id"],
+                                object_refs=[report_id],
+                            )
+                            stix_report = stix2.Report(
+                                id=report_id,
+                                name=self._redacted_as_none("title", report),
+                                report_types=[
+                                    self._redacted_as_none("reportType", report)
+                                ]
+                                if self._redacted_as_none("reportType", report)
+                                is not None
+                                else [],
+                                description=re.sub(
+                                    "<[^<]+?>",
+                                    "",
+                                    self._redacted_as_none("fromMedia", report),
+                                )
+                                if self._redacted_as_none("fromMedia", report)
+                                is not None
+                                else "No description",
+                                published=publish_date,
+                                labels=[
+                                    report.get("tmhAccuracyRanking"),
+                                    "News Analysis",
+                                ],
+                                confidence=self.helper.connect_confidence_level,
+                                created_by_ref=self.identity["standard_id"],
+                                object_refs=[note_id],
                                 allow_custom=True,
-                            ).serialize(),
-                            update=self.update_existing_data,
-                            # bypass_split = True,
-                            work_id=work_id,
-                        )
+                                x_opencti_files=[file] if file is not None else [],
+                                object_marking_refs=[stix2.TLP_AMBER.get("id")],
+                                external_references=[
+                                    {
+                                        "source_name": report["outlet"],
+                                        "url": report["storyLink"],
+                                    }
+                                ],
+                            )
+                            bundle_objects.append(stix_report)
+                            bundle_objects.append(stix_note)
+                            # Creating and sending the bundle to OCTI
+                            try:
+                                self.helper.log_debug(
+                                    "Objects to be sent " + str(bundle_objects)
+                                )
+                                self.helper.send_stix2_bundle(
+                                    stix2.Bundle(
+                                        objects=bundle_objects,
+                                        allow_custom=True,
+                                    ).serialize(),
+                                    update=self.update_existing_data,
+                                    bypass_split=True,
+                                    work_id=work_id,
+                                )
+                            except Exception as e:
+                                self.helper.log_info(
+                                    "Failed to process this report ID "
+                                    + str(reportOut.get("report_id"))
+                                )
+                                self.helper.log_info("ERROR: " + str(e))
+                        except Exception as e:
+                            self.helper.log_info(
+                                "Failed to process News Analysis Report "
+                                + str(reportOut.get("report_id"))
+                            )
+                            self.helper.log_info("ERROR: " + str(e))
+                    else:
+                        stix_bundle = None
+                        try:
+                            url_report = (
+                                self.mandiant_api_url
+                                + "/v4/report/"
+                                + reportOut.get("report_id")
+                            )
+                            stix_bundle = self._query(
+                                url_report,
+                                app_header="application/stix+json;version=2.1",
+                            )
+                            self.helper.log_debug(
+                                "Processing report ID "
+                                + str(reportOut.get("report_id"))
+                            )
+                            report_labels = []
+                            adding_sector_class = {"identity_class": "class"}
+                            adding_location_class = {
+                                "x_opencti_location_type": "Country"
+                            }
+                            # Removing the Mandiant entity
+                            for idx, each_object in enumerate(
+                                stix_bundle.get("objects")
+                            ):
+                                try:
+                                    if (
+                                        each_object.get("type") == "identity"
+                                        and each_object.get("identity_class")
+                                        == "organization"
+                                    ):
+                                        stix_bundle.get("objects").pop(idx)
 
-                    except Exception as e:
-                        self.helper.log_info(
-                            "Failed to process this report ID "
-                            + str(reportOut.get("report_id"))
-                        )
-
-                        self.helper.log_info("ERROR: " + str(e))
-
-            else:
+                                except Exception as e:
+                                    self.helper.log_info(
+                                        "Failed removing Mandiant Entity "
+                                        + str(reportOut.get("report_id"))
+                                    )
+                                    self.helper.log_info("ERROR: " + str(e))
+                            # Changing Threat Actor to Intrusion Set if it has been defined.
+                            for each_object in stix_bundle.get("objects"):
+                                try:
+                                    if (
+                                        self.mandiant_threat_actor_as_intrusion_set
+                                        and each_object.get("type") == "threat-actor"
+                                    ):
+                                        each_object["type"] = "intrusion-set"
+                                        each_object["id"] = each_object.get(
+                                            "id"
+                                        ).replace("threat-actor", "intrusion-set")
+                                    elif (
+                                        self.mandiant_threat_actor_as_intrusion_set
+                                        and each_object.get("type") == "relationship"
+                                    ):
+                                        each_object["source_ref"] = each_object.get(
+                                            "source_ref"
+                                        ).replace("threat-actor", "intrusion-set")
+                                        each_object["target_ref"] = each_object.get(
+                                            "target_ref"
+                                        ).replace("threat-actor", "intrusion-set")
+                                    elif (
+                                        self.mandiant_threat_actor_as_intrusion_set
+                                        and each_object.get("type") == "report"
+                                    ):
+                                        new_object_refs = []
+                                        for each_object_refs in each_object.get(
+                                            "object_refs"
+                                        ):
+                                            new_each_object_refs = (
+                                                each_object_refs.replace(
+                                                    "threat-actor", "intrusion-set"
+                                                )
+                                            )
+                                            new_object_refs.append(new_each_object_refs)
+                                        each_object["object_refs"] = new_object_refs
+                                except Exception as e:
+                                    self.helper.log_info(
+                                        "Failed to change Threat Actor to Intrusion Set "
+                                        + str(reportOut.get("report_id"))
+                                    )
+                                    self.helper.log_info("ERROR: " + str(e))
+                            # Updating the identities as sectors
+                            for each_object in stix_bundle.get("objects"):
+                                if each_object.get("type") == "identity":
+                                    each_object.update(adding_sector_class)
+                                    report_labels.append(each_object.get("name"))
+                            # Updating the locations as country
+                            for each_object in stix_bundle.get("objects"):
+                                if each_object.get("type") == "location":
+                                    each_object.update(adding_location_class)
+                            # Adding the created by ref and getting the PDF report.
+                            for each_object in stix_bundle.get("objects"):
+                                # Adding Sectors as labels for the report
+                                if each_object.get("type") == "report":
+                                    each_object.update(
+                                        {
+                                            "created_by_ref": str(
+                                                self.identity["standard_id"]
+                                            )
+                                        }
+                                    )
+                                    # Appending Report type as Labels
+                                    for each_report_type in each_object.get(
+                                        "report_types"
+                                    ):
+                                        report_labels.append(each_report_type)
+                                    # Updating the labels for the report.
+                                    each_object.update({"labels": report_labels})
+                                    self.helper.log_debug(
+                                        "Labels Object " + str(report_labels)
+                                    )
+                                    # Fetching the PDF for the report
+                                    try:
+                                        report_pdf = self._getreportpdf(url_report)
+                                        file_data_encoded = base64.b64encode(report_pdf)
+                                        filename = (
+                                            str(reportOut.get("report_id")) + ".pdf"
+                                        )
+                                        file = {
+                                            "name": filename,
+                                            "data": file_data_encoded.decode("utf-8"),
+                                            "mime_type": "application/pdf",
+                                        }
+                                        each_object.update({"x_opencti_files": [file]})
+                                    except Exception as e:
+                                        self.helper.log_info(
+                                            "Failed to get PDF report for ID "
+                                            + str(reportOut.get("report_id"))
+                                        )
+                                        self.helper.log_info("ERROR: " + str(e))
+                        except Exception as e:
+                            self.helper.log_info(
+                                "Failed to process News Analyis Report "
+                                + str(reportOut.get("report_id"))
+                            )
+                            self.helper.log_info("ERROR: " + str(e))
+                        # Creating and sending the bundle to OCTI
+                        try:
+                            bundle = stix2.Bundle(
+                                objects=stix_bundle.get("objects"),
+                                allow_custom=True,
+                            )
+                            self.helper.send_stix2_bundle(
+                                bundle.serialize(),
+                                update=self.update_existing_data,
+                                work_id=work_id,
+                            )
+                        except Exception as e:
+                            self.helper.log_info(
+                                "Failed to process this report ID "
+                                + str(reportOut.get("report_id"))
+                            )
+                            self.helper.log_info("ERROR: " + str(e))
+                next_pointer = result.get("next")
+                self.helper.log_debug("Report next_pointer ID " + str(next_pointer))
+            elif end_epoch > int(time.time()):
                 no_more_result = True
-                self.helper.log_info("No more results")
-
-            next_pointer = result.get("next")
-            self.helper.log_debug("Next pointer " + next_pointer)
-
-            current_state["report"] = next_pointer
-
-            self.helper.set_state(current_state)
-
+            if (
+                result is not None
+                and result["objects"] is not None
+                and len(result["objects"]) == 1000
+                and "next" in result
+                and len(result["next"]) > 0
+            ):
+                next = result["next"]
+            else:
+                next = None
+                start_epoch = end_epoch
+                end_epoch = start_epoch + 3600
+                current_state["report"] = int(start_epoch)
         return current_state
 
     def run(self):
@@ -710,10 +1162,9 @@ class Mandiant:
                             "malware": 0,
                             "vulnerability": self.added_after,
                             "indicator": self.added_after,
-                            "report": "",
+                            "report": self.added_after,
                         }
                     )
-
                 if "actor" in self.mandiant_collections:
                     current_state = self.helper.get_state()
                     self.helper.log_info(
@@ -739,6 +1190,13 @@ class Mandiant:
                     new_state = self._import_vulnerability(work_id, current_state)
                     self.helper.log_info("Setting new state " + str(new_state))
                     self.helper.set_state(new_state)
+                if "report" in self.mandiant_collections:
+                    current_state = self.helper.get_state()
+                    self.helper.log_info(
+                        "Get REPORT after position " + str(current_state["report"])
+                    )
+                    new_state = self._import_report(work_id, current_state)
+                    self.helper.set_state(new_state)
                 if "indicator" in self.mandiant_collections:
                     current_state = self.helper.get_state()
                     self.helper.log_info(
@@ -746,13 +1204,6 @@ class Mandiant:
                         + str(current_state["indicator"])
                     )
                     new_state = self._import_indicator(work_id, current_state)
-                    self.helper.set_state(new_state)
-                if "report" in self.mandiant_collections:
-                    current_state = self.helper.get_state()
-                    self.helper.log_info(
-                        "Get REPORT after position " + str(current_state["report"])
-                    )
-                    new_state = self._import_report(work_id, current_state)
                     self.helper.set_state(new_state)
 
                 message = "End of synchronization"

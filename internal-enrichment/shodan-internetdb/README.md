@@ -17,13 +17,12 @@ There are a number of configuration options, which are set either in `docker-com
 
 | Docker Env variable      | config variable   | Default | Description                                      |
 |--------------------------|-------------------|---------|--------------------------------------------------|
-| SHODAN_CREATE_INDICATORS | create_indicators | true    | Create indicators for any observables created    |
 | SHODAN_MAX_TLP           | max_tlp           | white   | The max TLP allowed to be sent to the Shodan API |
 | SHODAN_SSL_VERIFY        | ssl_verify        | true    | Verify SSL connections to the API endpoint       |
 
 ## Installation
 
-Please refer to [this](https://luatix.notion.site/Connectors-4586c588462d4a1fb5e661f2d9837db8) in OpenCTI's documentation as the authoritative source on installing connectors.
+Please refer to [this](https://filigran.notion.site/Connectors-4586c588462d4a1fb5e661f2d9837db8) in OpenCTI's documentation as the authoritative source on installing connectors.
 
 ### Docker
 

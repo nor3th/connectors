@@ -10,3 +10,6 @@ docker-compose-test.yml
 Pipfile*
 .DS_Store
 .venv
+*.key
+*.crt
+.env

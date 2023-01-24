@@ -1,7 +1,7 @@
 version: '3'
 services:
   connector-urlhaus:
-    image: opencti/connector-urlhaus:5.3.13
+    image: opencti/connector-urlhaus:5.5.2
     environment:
       - OPENCTI_URL=http://localhost
       - OPENCTI_TOKEN=ChangeMe
@@ -15,5 +15,6 @@ services:
       - URLHAUS_CSV_URL=https://urlhaus.abuse.ch/downloads/csv_recent/
       - URLHAUS_IMPORT_OFFLINE=true
       - URLHAUS_CREATE_INDICATORS=true
+      - URLHAUS_THREATS_FROM_LABELS=true
       - URLHAUS_INTERVAL=3 # In days, must be strictly greater than 1
     restart: always

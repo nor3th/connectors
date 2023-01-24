@@ -12,10 +12,13 @@ jobs:
       - run: sudo apt-get update -qq && sudo apt install curl gettext-base
       - run:
           name: install dependencies
-          command: pip install black --user
+          command: pip install black isort --user
       - run:
           name: confirm black version
           command: black --version
+      - run:
+          name: run isort check
+          command: isort --profile black --check .
       - run:
           name: run black check
           command: black --check .
@@ -41,7 +44,7 @@ jobs:
       - ms-teams/report:
           only_on_fail: true
           webhook_url: $MS_TEAMS_WEBHOOK_URL
-  build:
+  build_1:
     working_directory: ~/opencti
     docker:
       - image: cimg/base:stable-20.04
@@ -93,6 +96,10 @@ jobs:
           working_directory: ~/opencti/external-import/cape
           name: Build Docker image opencti/connector-cape
           command: docker build -t opencti/connector-cape:latest . && docker tag opencti/connector-cape:latest opencti/connector-cape:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/internal-enrichment/domaintools
+          name: Build Docker image opencti/connector-domaintools
+          command: docker build -t opencti/connector-domaintools:latest . && docker tag opencti/connector-domaintools:latest opencti/connector-domaintools:${CIRCLE_TAG}
       - run:
           working_directory: ~/opencti/external-import/misp
           name: Build Docker image opencti/connector-misp
@@ -190,6 +197,138 @@ jobs:
           name: Build Docker image opencti/connector-malbeacon
           command: docker build -t opencti/connector-malbeacon:latest . && docker tag opencti/connector-malbeacon:latest opencti/connector-malbeacon:${CIRCLE_TAG}
       - run:
+          working_directory: ~/opencti/internal-enrichment/crowdsec
+          name: Build Docker image opencti/connector-crowdsec
+          command: docker build -t opencti/connector-crowdsec:latest . && docker tag opencti/connector-crowdsec:latest opencti/connector-crowdsec:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/internal-enrichment/sophoslabs-intelix
+          name: Build Docker image opencti/connector-sophoslabs-intelix
+          command: docker build -t opencti/connector-sophoslabs-intelix:latest . && docker tag opencti/connector-sophoslabs-intelix:latest opencti/connector-sophoslabs-intelix:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/external-import/flashpoint
+          name: Build Docker image opencti/connector-flashpoint
+          command: docker build -t opencti/connector-flashpoint:latest . && docker tag opencti/connector-flashpoint:latest opencti/connector-flashpoint:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/internal-enrichment/tagger
+          name: Build Docker image opencti/connector-tagger
+          command: docker build -t opencti/connector-tagger:latest . && docker tag opencti/connector-tagger:latest opencti/connector-tagger:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/external-import/eset
+          name: Build Docker image opencti/connector-eset
+          command: docker build -t opencti/connector-eset:latest . && docker tag opencti/connector-eset:latest opencti/connector-eset:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/external-import/silobreaker
+          name: Build Docker image opencti/connector-silobreaker
+          command: docker build -t opencti/connector-silobreaker:latest . && docker tag opencti/connector-silobreaker:latest opencti/connector-silobreaker:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/stream/webhook
+          name: Build Docker image opencti/connector-webhook
+          command: docker build -t opencti/connector-webhook:latest . && docker tag opencti/connector-webhook:latest opencti/connector-webhook:${CIRCLE_TAG}
+      - run:
+          name: Publish Docker Image to Docker Hub
+          command: |
+            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            docker push opencti/connector-import-file-stix:latest
+            docker push opencti/connector-import-file-stix:${CIRCLE_TAG}
+            docker push opencti/connector-import-document:latest
+            docker push opencti/connector-import-document:${CIRCLE_TAG}
+            docker push opencti/connector-export-file-stix:latest
+            docker push opencti/connector-export-file-stix:${CIRCLE_TAG}
+            docker push opencti/connector-export-file-csv:latest
+            docker push opencti/connector-export-file-csv:${CIRCLE_TAG}
+            docker push opencti/connector-export-file-txt:latest
+            docker push opencti/connector-export-file-txt:${CIRCLE_TAG}
+            docker push opencti/connector-hygiene:latest
+            docker push opencti/connector-hygiene:${CIRCLE_TAG}
+            docker push opencti/connector-alienvault:latest
+            docker push opencti/connector-alienvault:${CIRCLE_TAG}
+            docker push opencti/connector-crowdstrike:latest
+            docker push opencti/connector-crowdstrike:${CIRCLE_TAG}
+            docker push opencti/connector-cryptolaemus:latest
+            docker push opencti/connector-cryptolaemus:${CIRCLE_TAG}
+            docker push opencti/connector-cuckoo:latest
+            docker push opencti/connector-cuckoo:${CIRCLE_TAG}
+            docker push opencti/connector-cape:latest
+            docker push opencti/connector-cape:${CIRCLE_TAG}
+            docker push opencti/connector-domaintools:latest
+            docker push opencti/connector-domaintools:${CIRCLE_TAG}            
+            docker push opencti/connector-misp:latest
+            docker push opencti/connector-misp:${CIRCLE_TAG}
+            docker push opencti/connector-mitre:latest
+            docker push opencti/connector-mitre:${CIRCLE_TAG}
+            docker push opencti/connector-opencti:latest
+            docker push opencti/connector-opencti:${CIRCLE_TAG}
+            docker push opencti/connector-cve:latest
+            docker push opencti/connector-cve:${CIRCLE_TAG}
+            docker push opencti/connector-amitt:latest
+            docker push opencti/connector-amitt:${CIRCLE_TAG}
+            docker push opencti/connector-sentinelone-threats:latest
+            docker push opencti/connector-sentinelone-threats:${CIRCLE_TAG}
+            docker push opencti/connector-ipinfo:latest
+            docker push opencti/connector-ipinfo:${CIRCLE_TAG}
+            docker push opencti/connector-virustotal:latest
+            docker push opencti/connector-virustotal:${CIRCLE_TAG}
+            docker push opencti/connector-virustotal-downloader:latest
+            docker push opencti/connector-virustotal-downloader:${CIRCLE_TAG}
+            docker push opencti/connector-lastinfosec:latest
+            docker push opencti/connector-lastinfosec:${CIRCLE_TAG}
+            docker push opencti/connector-malpedia:latest
+            docker push opencti/connector-malpedia:${CIRCLE_TAG}
+            docker push opencti/connector-mwdb:latest
+            docker push opencti/connector-mwdb:${CIRCLE_TAG}
+            docker push opencti/connector-riskiq:latest
+            docker push opencti/connector-riskiq:${CIRCLE_TAG}
+            docker push opencti/connector-valhalla:latest
+            docker push opencti/connector-valhalla:${CIRCLE_TAG}
+            docker push opencti/connector-cybercrime-tracker:latest
+            docker push opencti/connector-cybercrime-tracker:${CIRCLE_TAG}
+            docker push opencti/connector-tanium:latest
+            docker push opencti/connector-tanium:${CIRCLE_TAG}
+            docker push opencti/connector-mandiant:latest
+            docker push opencti/connector-mandiant:${CIRCLE_TAG}
+            docker push opencti/connector-kaspersky:latest
+            docker push opencti/connector-kaspersky:${CIRCLE_TAG}
+            docker push opencti/connector-greynoise:latest
+            docker push opencti/connector-greynoise:${CIRCLE_TAG}
+            docker push opencti/connector-taxii2:latest
+            docker push opencti/connector-taxii2:${CIRCLE_TAG}
+            docker push opencti/connector-thehive:latest
+            docker push opencti/connector-thehive:${CIRCLE_TAG}
+            docker push opencti/connector-abuseipdb:latest
+            docker push opencti/connector-abuseipdb:${CIRCLE_TAG}
+            docker push opencti/connector-urlhaus:latest
+            docker push opencti/connector-urlhaus:${CIRCLE_TAG}
+            docker push opencti/connector-malbeacon:latest
+            docker push opencti/connector-malbeacon:${CIRCLE_TAG}
+            docker push opencti/connector-crowdsec:latest
+            docker push opencti/connector-crowdsec:${CIRCLE_TAG}
+            docker push opencti/connector-sophoslabs-intelix:latest
+            docker push opencti/connector-sophoslabs-intelix:${CIRCLE_TAG}
+            docker push opencti/connector-flashpoint:latest
+            docker push opencti/connector-flashpoint:${CIRCLE_TAG}
+            docker push opencti/connector-tagger:latest
+            docker push opencti/connector-tagger:${CIRCLE_TAG}
+            docker push opencti/connector-eset:latest
+            docker push opencti/connector-eset:${CIRCLE_TAG}
+            docker push opencti/connector-silobreaker:latest
+            docker push opencti/connector-silobreaker:${CIRCLE_TAG}
+            docker push opencti/connector-webhook:latest
+            docker push opencti/connector-webhook:${CIRCLE_TAG}
+      - slack/notify:
+          event: fail
+          template: basic_fail_1
+      - ms-teams/report:
+          only_on_fail: true
+          webhook_url: $MS_TEAMS_WEBHOOK_URL
+  build_2:
+    working_directory: ~/opencti
+    docker:
+      - image: cimg/base:stable-20.04
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run: sudo apt-get update -qq && sudo apt install curl gettext-base
+      - run:
           working_directory: ~/opencti/external-import/sekoia
           name: Build Docker image opencti/connector-sekoia
           command: docker build -t opencti/connector-sekoia:latest . && docker tag opencti/connector-sekoia:latest opencti/connector-sekoia:${CIRCLE_TAG}
@@ -250,9 +389,9 @@ jobs:
           name: Build Docker image opencti/connector-intezer-sandbox
           command: docker build -t opencti/connector-intezer-sandbox:latest . && docker tag opencti/connector-intezer-sandbox:latest opencti/connector-intezer-sandbox:${CIRCLE_TAG}
       - run:
-         working_directory: ~/opencti/internal-enrichment/hatching-triage-sandbox
-         name: Build Docker image opencti/connector-hatching-triage-sandbox
-         command: docker build -t opencti/connector-hatching-triage-sandbox:latest . && docker tag opencti/connector-hatching-triage-sandbox:latest opencti/connector-hatching-triage-sandbox:${CIRCLE_TAG}
+          working_directory: ~/opencti/internal-enrichment/hatching-triage-sandbox
+          name: Build Docker image opencti/connector-hatching-triage-sandbox
+          command: docker build -t opencti/connector-hatching-triage-sandbox:latest . && docker tag opencti/connector-hatching-triage-sandbox:latest opencti/connector-hatching-triage-sandbox:${CIRCLE_TAG}
       - run:
           working_directory: ~/opencti/internal-enrichment/unpac-me
           name: Build Docker image opencti/connector-unpac-me
@@ -332,83 +471,39 @@ jobs:
       - run:
           working_directory: ~/opencti/external-import/disarm-framework
           name: Build Docker image opencti/connector-disarm-framework
-          command: docker build -t opencti/connector-disarm-framework:latest . && docker tag opencti/connector-disarm-framework:latest opencti/connector-disarm-framework:${CIRCLE_TAG}          
+          command: docker build -t opencti/connector-disarm-framework:latest . && docker tag opencti/connector-disarm-framework:latest opencti/connector-disarm-framework:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/external-import/chapsvision
+          name: Build Docker image opencti/connector-chapsvision
+          command: docker build -t opencti/connector-chapsvision:latest . && docker tag opencti/connector-chapsvision:latest opencti/connector-chapsvision:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/external-import/abuse-ssl
+          name: Build Docker image opencti/connector-abuse-ssl
+          command: docker build -t opencti/connector-abuse-ssl:latest . && docker tag opencti/connector-abuse-ssl:latest opencti/connector-abuse-ssl:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/external-import/ironnet
+          name: Build Docker image opencti/connector-ironnet
+          command: docker build -t opencti/connector-ironnet:latest . && docker tag opencti/connector-ironnet:latest opencti/connector-ironnet:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/external-import/recordedfuture-notes
+          name: Build Docker image opencti/connector-recordedfuture-notes
+          command: docker build -t opencti/connector-recordedfuture-notes:latest . && docker tag opencti/connector-recordedfuture-notes:latest opencti/connector-recordedfuture-notes:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/external-import/opencsam
+          name: Build Docker image opencti/connector-opencsam
+          command: docker build -t opencti/connector-opencsam:latest . && docker tag opencti/connector-opencsam:latest opencti/connector-opencsam:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/internal-enrichment/joe-sandbox
+          name: Build Docker image opencti/connector-joe-sandbox
+          command: docker build -t opencti/connector-joe-sandbox:latest . && docker tag opencti/connector-joe-sandbox:latest opencti/connector-joe-sandbox:${CIRCLE_TAG}
+      - run:
+          working_directory: ~/opencti/external-import/crits
+          name: Build Docker image opencti/connector-crits
+          command: docker build -t opencti/connector-crits:latest . && docker tag opencti/connector-crits:latest opencti/connector-crits:${CIRCLE_TAG}
       - run:
           name: Publish Docker Image to Docker Hub
           command: |
             echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-            docker push opencti/connector-import-file-stix:latest
-            docker push opencti/connector-import-file-stix:${CIRCLE_TAG}
-            docker push opencti/connector-import-document:latest
-            docker push opencti/connector-import-document:${CIRCLE_TAG}
-            docker push opencti/connector-export-file-stix:latest
-            docker push opencti/connector-export-file-stix:${CIRCLE_TAG}
-            docker push opencti/connector-export-file-csv:latest
-            docker push opencti/connector-export-file-csv:${CIRCLE_TAG}
-            docker push opencti/connector-export-file-txt:latest
-            docker push opencti/connector-export-file-txt:${CIRCLE_TAG}
-            docker push opencti/connector-hygiene:latest
-            docker push opencti/connector-hygiene:${CIRCLE_TAG}
-            docker push opencti/connector-alienvault:latest
-            docker push opencti/connector-alienvault:${CIRCLE_TAG}
-            docker push opencti/connector-crowdstrike:latest
-            docker push opencti/connector-crowdstrike:${CIRCLE_TAG}
-            docker push opencti/connector-cryptolaemus:latest
-            docker push opencti/connector-cryptolaemus:${CIRCLE_TAG}
-            docker push opencti/connector-cuckoo:latest
-            docker push opencti/connector-cuckoo:${CIRCLE_TAG}
-            docker push opencti/connector-cape:latest
-            docker push opencti/connector-cape:${CIRCLE_TAG}
-            docker push opencti/connector-misp:latest
-            docker push opencti/connector-misp:${CIRCLE_TAG}
-            docker push opencti/connector-mitre:latest
-            docker push opencti/connector-mitre:${CIRCLE_TAG}
-            docker push opencti/connector-opencti:latest
-            docker push opencti/connector-opencti:${CIRCLE_TAG}
-            docker push opencti/connector-cve:latest
-            docker push opencti/connector-cve:${CIRCLE_TAG}
-            docker push opencti/connector-amitt:latest
-            docker push opencti/connector-amitt:${CIRCLE_TAG}
-            docker push opencti/connector-sentinelone-threats:latest
-            docker push opencti/connector-sentinelone-threats:${CIRCLE_TAG}
-            docker push opencti/connector-ipinfo:latest
-            docker push opencti/connector-ipinfo:${CIRCLE_TAG}
-            docker push opencti/connector-virustotal:latest
-            docker push opencti/connector-virustotal:${CIRCLE_TAG}
-            docker push opencti/connector-virustotal-downloader:latest
-            docker push opencti/connector-virustotal-downloader:${CIRCLE_TAG}
-            docker push opencti/connector-lastinfosec:latest
-            docker push opencti/connector-lastinfosec:${CIRCLE_TAG}
-            docker push opencti/connector-malpedia:latest
-            docker push opencti/connector-malpedia:${CIRCLE_TAG}
-            docker push opencti/connector-mwdb:latest
-            docker push opencti/connector-mwdb:${CIRCLE_TAG}
-            docker push opencti/connector-riskiq:latest
-            docker push opencti/connector-riskiq:${CIRCLE_TAG}
-            docker push opencti/connector-valhalla:latest
-            docker push opencti/connector-valhalla:${CIRCLE_TAG}
-            docker push opencti/connector-cybercrime-tracker:latest
-            docker push opencti/connector-cybercrime-tracker:${CIRCLE_TAG}
-            docker push opencti/connector-tanium:latest
-            docker push opencti/connector-tanium:${CIRCLE_TAG}
-            docker push opencti/connector-mandiant:latest
-            docker push opencti/connector-mandiant:${CIRCLE_TAG}
-            docker push opencti/connector-kaspersky:latest
-            docker push opencti/connector-kaspersky:${CIRCLE_TAG}
-            docker push opencti/connector-greynoise:latest
-            docker push opencti/connector-greynoise:${CIRCLE_TAG}
-            docker push opencti/connector-taxii2:latest
-            docker push opencti/connector-taxii2:${CIRCLE_TAG}
-            docker push opencti/connector-thehive:latest
-            docker push opencti/connector-thehive:${CIRCLE_TAG}
-            docker push opencti/connector-abuseipdb:latest
-            docker push opencti/connector-abuseipdb:${CIRCLE_TAG}
-            docker push opencti/connector-urlhaus:latest
-            docker push opencti/connector-urlhaus:${CIRCLE_TAG}
-            docker push opencti/connector-urlscan:latest
-            docker push opencti/connector-urlscan:${CIRCLE_TAG}
-            docker push opencti/connector-malbeacon:latest
-            docker push opencti/connector-malbeacon:${CIRCLE_TAG}
             docker push opencti/connector-sekoia:latest
             docker push opencti/connector-sekoia:${CIRCLE_TAG}
             docker push opencti/connector-threatbus:latest
@@ -465,6 +560,8 @@ jobs:
             docker push opencti/connector-cyber-campaign-collection:${CIRCLE_TAG}
             docker push opencti/connector-socprime:latest
             docker push opencti/connector-socprime:${CIRCLE_TAG}
+            docker push opencti/connector-urlscan:latest
+            docker push opencti/connector-urlscan:${CIRCLE_TAG}
             docker push opencti/connector-maltiverse:latest
             docker push opencti/connector-maltiverse:${CIRCLE_TAG}
             docker push opencti/connector-intel471:latest
@@ -478,14 +575,28 @@ jobs:
             docker push opencti/connector-misp-feed:latest
             docker push opencti/connector-misp-feed:${CIRCLE_TAG}
             docker push opencti/connector-disarm-framework:latest
-            docker push opencti/connector-disarm-framework:${CIRCLE_TAG}            
+            docker push opencti/connector-disarm-framework:${CIRCLE_TAG}
+            docker push opencti/connector-chapsvision:latest
+            docker push opencti/connector-chapsvision:${CIRCLE_TAG}
+            docker push opencti/connector-abuse-ssl:latest
+            docker push opencti/connector-abuse-ssl:${CIRCLE_TAG}
+            docker push opencti/connector-ironnet:latest
+            docker push opencti/connector-ironnet:${CIRCLE_TAG}
+            docker push opencti/connector-recordedfuture-notes:latest
+            docker push opencti/connector-recordedfuture-notes:${CIRCLE_TAG}
+            docker push opencti/connector-opencsam:latest
+            docker push opencti/connector-opencsam:${CIRCLE_TAG}
+            docker push opencti/connector-joe-sandbox:latest
+            docker push opencti/connector-joe-sandbox:${CIRCLE_TAG}
+            docker push opencti/connector-crits:latest
+            docker push opencti/connector-crits:${CIRCLE_TAG}
       - slack/notify:
           event: fail
           template: basic_fail_1
       - ms-teams/report:
           only_on_fail: true
           webhook_url: $MS_TEAMS_WEBHOOK_URL
-  build_rolling:
+  build_rolling_1:
     working_directory: ~/opencti
     docker:
       - image: cimg/base:stable-20.04
@@ -630,6 +741,93 @@ jobs:
           name: Build Docker image opencti/connector-malbeacon
           command: docker build -t opencti/connector-malbeacon:rolling .
       - run:
+          working_directory: ~/opencti/internal-enrichment/crowdsec
+          name: Build Docker image opencti/connector-crowdsec
+          command: docker build -t opencti/connector-crowdsec:rolling .
+      - run:
+          working_directory: ~/opencti/internal-enrichment/sophoslabs-intelix
+          name: Build Docker image opencti/connector-sophoslabs-intelix
+          command: docker build -t opencti/connector-sophoslabs-intelix:rolling .
+      - run:
+          working_directory: ~/opencti/external-import/flashpoint
+          name: Build Docker image opencti/connector-flashpoint
+          command: docker build -t opencti/connector-flashpoint:rolling .
+      - run:
+          working_directory: ~/opencti/internal-enrichment/tagger
+          name: Build Docker image opencti/connector-tagger
+          command: docker build -t opencti/connector-tagger:rolling .
+      - run:
+          working_directory: ~/opencti/external-import/eset
+          name: Build Docker image opencti/connector-eset
+          command: docker build -t opencti/connector-eset:rolling .
+      - run:
+          working_directory: ~/opencti/external-import/silobreaker
+          name: Build Docker image opencti/connector-silobreaker
+          command: docker build -t opencti/connector-silobreaker:rolling .
+      - run:
+          working_directory: ~/opencti/stream/webhook
+          name: Build Docker image opencti/connector-webhook
+          command: docker build -t opencti/connector-webhook:rolling .
+      - run:
+          name: Publish Docker Image to Docker Hub
+          command: |
+            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            docker push opencti/connector-import-file-stix:rolling
+            docker push opencti/connector-import-document:rolling
+            docker push opencti/connector-export-file-stix:rolling
+            docker push opencti/connector-export-file-csv:rolling
+            docker push opencti/connector-export-file-txt:rolling
+            docker push opencti/connector-hygiene:rolling
+            docker push opencti/connector-alienvault:rolling
+            docker push opencti/connector-crowdstrike:rolling
+            docker push opencti/connector-cryptolaemus:rolling
+            docker push opencti/connector-cuckoo:rolling
+            docker push opencti/connector-cape:rolling
+            docker push opencti/connector-misp:rolling
+            docker push opencti/connector-mitre:rolling
+            docker push opencti/connector-opencti:rolling
+            docker push opencti/connector-cve:rolling
+            docker push opencti/connector-amitt:rolling
+            docker push opencti/connector-ipinfo:rolling
+            docker push opencti/connector-virustotal:rolling
+            docker push opencti/connector-virustotal-downloader:rolling
+            docker push opencti/connector-lastinfosec:rolling
+            docker push opencti/connector-malpedia:rolling
+            docker push opencti/connector-mwdb:rolling
+            docker push opencti/connector-riskiq:rolling
+            docker push opencti/connector-valhalla:rolling
+            docker push opencti/connector-cybercrime-tracker:rolling
+            docker push opencti/connector-tanium:rolling
+            docker push opencti/connector-mandiant:rolling
+            docker push opencti/connector-kaspersky:rolling
+            docker push opencti/connector-greynoise:rolling
+            docker push opencti/connector-taxii2:rolling
+            docker push opencti/connector-thehive:rolling
+            docker push opencti/connector-abuseipdb:rolling
+            docker push opencti/connector-urlhaus:rolling
+            docker push opencti/connector-malbeacon:rolling
+            docker push opencti/connector-crowdsec:rolling
+            docker push opencti/connector-sophoslabs-intelix:rolling
+            docker push opencti/connector-flashpoint:rolling
+            docker push opencti/connector-tagger:rolling
+            docker push opencti/connector-eset:rolling
+            docker push opencti/connector-silobreaker:rolling
+            docker push opencti/connector-webhook:rolling
+      - slack/notify:
+          event: fail
+          template: basic_fail_1
+      - ms-teams/report:
+          only_on_fail: true
+          webhook_url: $MS_TEAMS_WEBHOOK_URL
+  build_rolling_2:
+    working_directory: ~/opencti
+    docker:
+      - image: cimg/base:stable-20.04
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run: sudo apt-get update -qq && sudo apt install curl gettext-base
+      - run:
           working_directory: ~/opencti/external-import/sekoia
           name: Build Docker image opencti/connector-sekoia
           command: docker build -t opencti/connector-sekoia:rolling .
@@ -686,6 +884,10 @@ jobs:
           name: Build Docker image opencti/connector-cape-sandbox
           command: docker build -t opencti/connector-cape-sandbox:rolling .
       - run:
+          working_directory: ~/opencti/internal-enrichment/domaintools
+          name: Build Docker image opencti/connector-domaintools
+          command: docker build -t opencti/connector-domaintools:rolling .
+      - run:
           working_directory: ~/opencti/internal-enrichment/intezer-sandbox
           name: Build Docker image opencti/connector-intezer-sandbox
           command: docker build -t opencti/connector-intezer-sandbox:rolling .
@@ -710,9 +912,9 @@ jobs:
           name: Build Docker image opencti/connector-urlhaus-recent-payloads
           command: docker build -t opencti/connector-urlhaus-recent-payloads:rolling .
       - run:
-         working_directory: ~/opencti/internal-export-file/export-report-pdf
-         name: Build Docker image opencti/connector-export-report-pdf
-         command: docker build -t opencti/connector-export-report-pdf:rolling .
+          working_directory: ~/opencti/internal-export-file/export-report-pdf
+          name: Build Docker image opencti/connector-export-report-pdf
+          command: docker build -t opencti/connector-export-report-pdf:rolling .
       - run:
           working_directory: ~/opencti/external-import/obstracts
           name: Build Docker image opencti/connector-obstracts
@@ -772,45 +974,39 @@ jobs:
       - run:
           working_directory: ~/opencti/external-import/disarm-framework
           name: Build Docker image opencti/connector-disarm-framework
-          command: docker build -t opencti/connector-disarm-framework:rolling .          
+          command: docker build -t opencti/connector-disarm-framework:rolling .
+      - run:
+          working_directory: ~/opencti/external-import/chapsvision
+          name: Build Docker image opencti/connector-chapsvision
+          command: docker build -t opencti/connector-chapsvision:rolling .
+      - run:
+          working_directory: ~/opencti/external-import/abuse-ssl
+          name: Build Docker image opencti/connector-abuse-ssl
+          command: docker build -t opencti/connector-abuse-ssl:rolling .
+      - run:
+          working_directory: ~/opencti/external-import/ironnet
+          name: Build Docker image opencti/connector-ironnet
+          command: docker build -t opencti/connector-ironnet:rolling .
+      - run:
+          working_directory: ~/opencti/external-import/recordedfuture-notes
+          name: Build Docker image opencti/connector-recordedfuture-notes
+          command: docker build -t opencti/connector-recordedfuture-notes:rolling .
+      - run:
+          working_directory: ~/opencti/external-import/opencsam
+          name: Build Docker image opencti/connector-opencsam
+          command: docker build -t opencti/connector-opencsam:rolling .
+      - run:
+          working_directory: ~/opencti/internal-enrichment/joe-sandbox
+          name: Build Docker image opencti/connector-joe-sandbox
+          command: docker build -t opencti/connector-joe-sandbox:rolling .
+      - run:
+          working_directory: ~/opencti/external-import/crits
+          name: Build Docker image opencti/connector-crits
+          command: docker build -t opencti/connector-crits:rolling .
       - run:
           name: Publish Docker Image to Docker Hub
           command: |
             echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-            docker push opencti/connector-import-file-stix:rolling
-            docker push opencti/connector-import-document:rolling
-            docker push opencti/connector-export-file-stix:rolling
-            docker push opencti/connector-export-file-csv:rolling
-            docker push opencti/connector-export-file-txt:rolling
-            docker push opencti/connector-hygiene:rolling
-            docker push opencti/connector-alienvault:rolling
-            docker push opencti/connector-crowdstrike:rolling
-            docker push opencti/connector-cryptolaemus:rolling
-            docker push opencti/connector-cuckoo:rolling
-            docker push opencti/connector-cape:rolling
-            docker push opencti/connector-misp:rolling
-            docker push opencti/connector-mitre:rolling
-            docker push opencti/connector-opencti:rolling
-            docker push opencti/connector-cve:rolling
-            docker push opencti/connector-amitt:rolling
-            docker push opencti/connector-ipinfo:rolling
-            docker push opencti/connector-virustotal:rolling
-            docker push opencti/connector-virustotal-downloader:rolling
-            docker push opencti/connector-lastinfosec:rolling
-            docker push opencti/connector-malpedia:rolling
-            docker push opencti/connector-mwdb:rolling
-            docker push opencti/connector-riskiq:rolling
-            docker push opencti/connector-valhalla:rolling
-            docker push opencti/connector-cybercrime-tracker:rolling
-            docker push opencti/connector-tanium:rolling
-            docker push opencti/connector-mandiant:rolling
-            docker push opencti/connector-kaspersky:rolling
-            docker push opencti/connector-greynoise:rolling
-            docker push opencti/connector-taxii2:rolling
-            docker push opencti/connector-thehive:rolling
-            docker push opencti/connector-abuseipdb:rolling
-            docker push opencti/connector-urlhaus:rolling
-            docker push opencti/connector-malbeacon:rolling
             docker push opencti/connector-sekoia:rolling
             docker push opencti/connector-threatbus:rolling
             docker push opencti/connector-hybrid-analysis-sandbox:rolling
@@ -825,6 +1021,7 @@ jobs:
             docker push opencti/connector-restore-files:rolling
             docker push opencti/connector-virustotal-livehunt-notifications:rolling
             docker push opencti/connector-cape-sandbox:rolling
+            docker push opencti/connector-domaintools:rolling
             docker push opencti/connector-intezer-sandbox:rolling
             docker push opencti/connector-hatching-triage-sandbox:rolling
             docker push opencti/connector-unpac-me:rolling
@@ -847,6 +1044,13 @@ jobs:
             docker push opencti/connector-abuseipdb-ipblacklist:rolling
             docker push opencti/connector-misp-feed:rolling
             docker push opencti/connector-disarm-framework:rolling
+            docker push opencti/connector-chapsvision:rolling
+            docker push opencti/connector-abuse-ssl:rolling
+            docker push opencti/connector-ironnet:rolling
+            docker push opencti/connector-recordedfuture-notes:rolling
+            docker push opencti/connector-opencsam:rolling
+            docker push opencti/connector-joe-sandbox:rolling
+            docker push opencti/connector-crits:rolling
       - slack/notify:
           event: fail
           template: basic_fail_1
@@ -855,7 +1059,7 @@ jobs:
           webhook_url: $MS_TEAMS_WEBHOOK_URL
   notify_rolling:
     docker:
-      - image: 'cimg/base:stable'
+      - image: "cimg/base:stable"
     steps:
       - run: sudo apt-get update -qq && sudo apt install curl gettext-base
       - slack/notify:
@@ -866,7 +1070,7 @@ jobs:
           webhook_url: $MS_TEAMS_WEBHOOK_URL
   notify:
     docker:
-      - image: 'cimg/base:stable'
+      - image: "cimg/base:stable"
     steps:
       - run: sudo apt-get update -qq && sudo apt install curl gettext-base
       - slack/notify:
@@ -881,13 +1085,27 @@ workflows:
     jobs:
       - ensure_formatting
       - linter
-      - build:
+      - build_1:
           filters:
             tags:
               only: /[0-9]+(\.[0-9]+)+(\.[0-9]+)*/
             branches:
               ignore: /.*/
-      - build_rolling:
+      - build_2:
+          filters:
+            tags:
+              only: /[0-9]+(\.[0-9]+)+(\.[0-9]+)*/
+            branches:
+              ignore: /.*/
+      - build_rolling_1:
+          requires:
+            - ensure_formatting
+            - linter
+          filters:
+            branches:
+              only:
+                - master
+      - build_rolling_2:
           requires:
             - ensure_formatting
             - linter
@@ -897,10 +1115,12 @@ workflows:
                 - master
       - notify_rolling:
           requires:
-            - build_rolling
+            - build_rolling_1
+            - build_rolling_2
       - notify:
           requires:
-            - build
+            - build_1
+            - build_2
           filters:
             tags:
               only: /[0-9]+(\.[0-9]+)+(\.[0-9]+)*/

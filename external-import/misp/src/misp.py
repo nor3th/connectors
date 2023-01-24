@@ -5,6 +5,7 @@ import sys
 import time
 from datetime import datetime
 
+import pytz
 import stix2
 import yaml
 from dateutil.parser import parse
@@ -126,6 +127,33 @@ OPENCTISTIX2 = {
 FILETYPES = ["file-name", "file-md5", "file-sha1", "file-sha256"]
 
 
+def filter_event_attributes(event, **filters):
+    if not filters:
+        return None
+
+    attributes = list()
+    for attribute in event["Event"]["Attribute"]:
+        for key, value in filters.items():
+            if attribute[key] != value:
+                break
+        else:
+            attributes.append(attribute)
+    return attributes
+
+
+def parse_filter_config(config):
+    filters = dict()
+
+    if not config:
+        return filters
+
+    for item in config.split(","):
+        key, value = item.split("=")
+        filters[key] = value
+
+    return filters
+
+
 class Misp:
     def __init__(self):
         # Instantiate the connector helper from config
@@ -152,6 +180,15 @@ class Misp:
             False,
             "timestamp",
         )
+        self.misp_report_description_attribute_filter = parse_filter_config(
+            get_config_variable(
+                "MISP_REPORT_DESCRIPTION_ATTRIBUTE_FILTER",
+                ["misp", "report_description_attribute_filter"],
+                config,
+                # "type=comment,category=Internal reference"
+            )
+        )
+
         self.misp_create_reports = get_config_variable(
             "MISP_CREATE_REPORTS", ["misp", "create_reports"], config
         )
@@ -167,6 +204,12 @@ class Misp:
             config,
             False,
             False,
+        )
+        self.misp_create_tags_as_labels = get_config_variable(
+            "MISP_CREATE_TAGS_AS_LABELS",
+            ["misp", "create_tags_as_labels"],
+            config,
+            default=True,
         )
         self.misp_report_type = get_config_variable(
             "MISP_REPORT_TYPE", ["misp", "report_type"], config, False, "misp-event"
@@ -249,24 +292,46 @@ class Misp:
 
     def run(self):
         while True:
-            timestamp = int(time.time())
-            # Get the last_run datetime
-            now = datetime.utcfromtimestamp(timestamp)
-            friendly_name = "MISP run @ " + now.strftime("%Y-%m-%d %H:%M:%S")
+            now = datetime.now(pytz.UTC)
+            friendly_name = "MISP run @ " + now.astimezone(pytz.UTC).isoformat()
             work_id = self.helper.api.work.initiate_work(
                 self.helper.connect_id, friendly_name
             )
             current_state = self.helper.get_state()
-            if current_state is not None and "last_run" in current_state:
-                if isinstance(current_state["last_run"], int):
-                    last_run = datetime.utcfromtimestamp(current_state["last_run"])
-                else:
-                    last_run = parse(current_state["last_run"])
-                last_run_date = last_run.isoformat()
-                self.helper.log_info("Connector last run: " + last_run_date)
+            if (
+                current_state is not None
+                and "last_run" in current_state
+                and "last_event_timestamp" in current_state
+                and "last_event" in current_state
+            ):
+                last_run = parse(current_state["last_run"])
+                last_event = parse(current_state["last_event"])
+                last_event_timestamp = current_state["last_event_timestamp"]
+                self.helper.log_info(
+                    "Connector last run: " + last_run.astimezone(pytz.UTC).isoformat()
+                )
+                self.helper.log_info(
+                    "Connector latest event: "
+                    + last_event.astimezone(pytz.UTC).isoformat()
+                )
+            elif current_state is not None and "last_run" in current_state:
+                last_run = parse(current_state["last_run"])
+                last_event = last_run
+                last_event_timestamp = int(last_event.timestamp())
+                self.helper.log_info(
+                    "Connector last run: " + last_run.astimezone(pytz.UTC).isoformat()
+                )
+                self.helper.log_info(
+                    "Connector latest event: "
+                    + last_event.astimezone(pytz.UTC).isoformat()
+                )
             else:
-                last_run = parse(self.misp_import_from_date)
-                last_run_date = last_run.isoformat()
+                if self.misp_import_from_date is not None:
+                    last_event = parse(self.misp_import_from_date)
+                    last_event_timestamp = int(last_event.timestamp())
+                else:
+                    last_event = now
+                    last_event_timestamp = int(now.timestamp())
                 self.helper.log_info("Connector has never run")
 
             # If import with tags
@@ -293,7 +358,8 @@ class Misp:
             kwargs = dict()
 
             # Put the date
-            kwargs[self.misp_datetime_attribute] = last_run_date
+            next_event_timestamp = last_event_timestamp + 1
+            kwargs[self.misp_datetime_attribute] = next_event_timestamp
 
             # Complex query date
             if complex_query_tag is not None:
@@ -336,23 +402,45 @@ class Misp:
                 self.helper.log_info("MISP returned " + str(len(events)) + " events.")
                 number_events = number_events + len(events)
 
-                # Update the state
-                self.helper.set_state({"last_run": now.isoformat()})
-
                 # Break if no more result
                 if len(events) == 0:
                     break
 
                 # Process the event
-                self.process_events(work_id, events)
+                processed_events_last_timestamp = self.process_events(work_id, events)
+                if (
+                    processed_events_last_timestamp is not None
+                    and processed_events_last_timestamp > last_event_timestamp
+                ):
+                    last_event_timestamp = processed_events_last_timestamp
 
                 # Next page
                 current_page += 1
+
+            # Loop is over, storing the state
+            # We cannot store the state before, because MISP events are NOT ordered properly
+            # and there is NO WAY to order them using their library
             message = (
                 "Connector successfully run ("
                 + str(number_events)
-                + " events have been processed), storing last_run as "
-                + now.strftime("%Y-%m-%d %H:%M:%S")
+                + " events have been processed), storing state (last_run="
+                + now.astimezone(pytz.utc).isoformat()
+                + ", last_event="
+                + datetime.utcfromtimestamp(last_event_timestamp)
+                .astimezone(pytz.UTC)
+                .isoformat()
+                + ", last_event_timestamp="
+                + str(last_event_timestamp)
+                + ")"
+            )
+            self.helper.set_state(
+                {
+                    "last_run": now.astimezone(pytz.utc).isoformat(),
+                    "last_event": datetime.utcfromtimestamp(last_event_timestamp)
+                    .astimezone(pytz.UTC)
+                    .isoformat(),
+                    "last_event_timestamp": last_event_timestamp,
+                }
             )
             self.helper.log_info(message)
             self.helper.api.work.to_processed(work_id, message)
@@ -370,6 +458,7 @@ class Misp:
         import_owner_orgs_not = None
         import_distribution_levels = None
         import_threat_levels = None
+        last_event_timestamp = None
         if self.import_creator_orgs is not None:
             import_creator_orgs = self.import_creator_orgs.split(",")
         if self.import_creator_orgs_not is not None:
@@ -385,6 +474,11 @@ class Misp:
 
         for event in events:
             self.helper.log_info("Processing event " + event["Event"]["uuid"])
+            event_timestamp = int(event["Event"][self.misp_datetime_attribute])
+            # need to check if timestamp is more recent than the previous event since
+            # events are not ordered by timestamp in API response
+            if last_event_timestamp is None or event_timestamp > last_event_timestamp:
+                last_event_timestamp = event_timestamp
             # Check against filter
             if (
                 import_creator_orgs is not None
@@ -621,6 +715,7 @@ class Misp:
                 + event_elements["attack_patterns"]
                 + event_elements["sectors"]
                 + event_elements["countries"]
+                + event_elements["regions"]
             )
             for event_element in all_event_elements:
                 if event_element["id"] not in added_object_refs:
@@ -669,6 +764,7 @@ class Misp:
                     + indicator["attribute_elements"]["attack_patterns"]
                     + indicator["attribute_elements"]["sectors"]
                     + indicator["attribute_elements"]["countries"]
+                    + indicator["attribute_elements"]["regions"]
                 )
                 for attribute_element in all_attribute_elements:
                     if attribute_element["id"] not in added_object_refs:
@@ -748,6 +844,14 @@ class Misp:
             # Create the report if needed
             # Report in STIX must have at least one object_refs
             if self.misp_create_reports and len(object_refs) > 0:
+
+                attributes = filter_event_attributes(
+                    event, **self.misp_report_description_attribute_filter
+                )
+                description = (
+                    attributes[0]["value"] if attributes else event["Event"]["info"]
+                )
+
                 report = stix2.Report(
                     id=Report.generate_id(
                         event["Event"]["info"],
@@ -760,7 +864,7 @@ class Misp:
                         ),
                     ),
                     name=event["Event"]["info"],
-                    description=event["Event"]["info"],
+                    description=description,
                     published=datetime.utcfromtimestamp(
                         int(
                             datetime.strptime(
@@ -793,7 +897,12 @@ class Misp:
                 bundle_objects.append(report)
                 for note in event["Event"].get("EventReport", []):
                     note = stix2.Note(
-                        id=Note.generate_id(),
+                        id=Note.generate_id(
+                            datetime.utcfromtimestamp(int(note["timestamp"])).strftime(
+                                "%Y-%m-%dT%H:%M:%SZ"
+                            ),
+                            self.process_note(note["content"], bundle_objects),
+                        ),
                         confidence=self.helper.connect_confidence_level,
                         created=datetime.utcfromtimestamp(
                             int(note["timestamp"])
@@ -815,6 +924,7 @@ class Misp:
             self.helper.send_stix2_bundle(
                 bundle, work_id=work_id, update=self.update_existing_data
             )
+        return last_event_timestamp
 
     def _get_pdf_file(self, attribute):
         if not self.import_with_attachments:
@@ -870,7 +980,6 @@ class Misp:
         resolved_attributes = self.resolve_type(attribute["type"], attribute["value"])
         if resolved_attributes is None:
             return None
-
         file_name = None
         for resolved_attribute in resolved_attributes:
             if resolved_attribute["resolver"] == "file-name":
@@ -1037,6 +1146,7 @@ class Misp:
                     elif observable_type == "Email-Message":
                         observable = stix2.EmailMessage(
                             subject=observable_value,
+                            is_multipart=True,
                             object_marking_refs=attribute_markings,
                             custom_properties=custom_properties,
                         )
@@ -1478,6 +1588,7 @@ class Misp:
             "attack_patterns": [],
             "sectors": [],
             "countries": [],
+            "regions": [],
         }
         added_names = []
         for galaxy in galaxies:
@@ -1625,6 +1736,7 @@ class Misp:
                             )
                         )
                         added_names.append(name)
+
             # Get the linked countries
             if galaxy["namespace"] == "misp" and galaxy["name"] == "Country":
                 for galaxy_entity in galaxy["GalaxyCluster"]:
@@ -1642,6 +1754,26 @@ class Misp:
                             )
                         )
                         added_names.append(name)
+
+            # Get the linked regions
+            if (
+                galaxy["namespace"] == "misp"
+                and galaxy["type"] == "region"
+                and galaxy["name"] == "Regions UN M49"
+            ):
+                for galaxy_entity in galaxy["GalaxyCluster"]:
+                    name = galaxy_entity["value"].split(" - ")[1]
+                    if name not in added_names:
+                        elements["regions"].append(
+                            stix2.Location(
+                                id=Location.generate_id(name, "Region"),
+                                name=name,
+                                region=name,
+                                allow_custom=True,
+                            )
+                        )
+                        added_names.append(name)
+
         for tag in tags:
             # Get the linked intrusion sets
             if (
@@ -1846,7 +1978,7 @@ class Misp:
                     {"resolver": resolver_1, "type": type_1, "value": values[1]},
                 ]
             else:
-                if resolved_types[0] == "ipv4-addr":
+                if resolved_types[0]["resolver"] == "ipv4-addr":
                     resolver_0 = self.detect_ip_version(value)
                     type_0 = self.detect_ip_version(value, True)
                 else:
@@ -1882,15 +2014,18 @@ class Misp:
     def resolve_markings(self, tags, with_default=True):
         markings = []
         for tag in tags:
-            if tag["name"] == "tlp:clear":
+            tag_name = tag["name"].lower()
+            if tag_name == "tlp:clear":
                 markings.append(stix2.TLP_WHITE)
-            if tag["name"] == "tlp:white":
+            if tag_name == "tlp:white":
                 markings.append(stix2.TLP_WHITE)
-            if tag["name"] == "tlp:green":
+            if tag_name == "tlp:green":
                 markings.append(stix2.TLP_GREEN)
-            if tag["name"] == "tlp:amber":
+            if tag_name == "tlp:amber":
                 markings.append(stix2.TLP_AMBER)
-            if tag["name"] == "tlp:red":
+            if tag_name == "tlp:amber+strict":
+                markings.append(stix2.TLP_AMBER)
+            if tag_name == "tlp:red":
                 markings.append(stix2.TLP_RED)
         if len(markings) == 0 and with_default:
             markings.append(stix2.TLP_WHITE)
@@ -1898,11 +2033,16 @@ class Misp:
 
     def resolve_tags(self, tags):
         opencti_tags = []
+
+        if not self.misp_create_tags_as_labels:
+            return opencti_tags
+
         for tag in tags:
             if (
                 tag["name"] != "tlp:white"
                 and tag["name"] != "tlp:green"
                 and tag["name"] != "tlp:amber"
+                and tag["name"] != "tlp:amber+strict"
                 and tag["name"] != "tlp:red"
                 and not tag["name"].startswith("misp-galaxy:threat-actor")
                 and not tag["name"].startswith("misp-galaxy:mitre-threat-actor")
@@ -1931,6 +2071,7 @@ class Misp:
                 and not tag["name"].startswith("misp-galaxy:malpedia")
                 and not tag["name"].startswith("misp-galaxy:sector")
                 and not tag["name"].startswith("misp-galaxy:country")
+                and not tag["name"].startswith("misp-galaxy:region")
             ):
                 tag_value = tag["name"]
                 if '="' in tag["name"]:
@@ -1952,8 +2093,7 @@ class Misp:
 
     def find_type_by_uuid(self, uuid, bundle_objects):
         # filter by uuid
-        i_find = lambda o: o.id.endswith("--" + uuid)
-        i_result = list(filter(i_find, bundle_objects))
+        i_result = list(filter(lambda o: o.id.endswith("--" + uuid), bundle_objects))
 
         if len(i_result) > 0:
             uuid = i_result[0]["id"]

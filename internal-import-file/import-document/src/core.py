@@ -155,8 +155,18 @@ class ImportDocument(InternalFileInputConnector):
                             f"found. Is the CVE Connector activated?"
                         )
                         continue
-
-                    entities.append(entity["standard_id"])
+                    entity_stix_bundle = self.helper.api.stix2.export_entity(
+                        entity["entity_type"], entity["id"]
+                    )
+                    if len(entity_stix_bundle["objects"]) == 0:
+                        raise ValueError("Entity cannot be found or exported")
+                    entity_stix = [
+                        object
+                        for object in entity_stix_bundle["objects"]
+                        if "x_opencti_id" in object
+                        and object["x_opencti_id"] == entity["id"]
+                    ][0]
+                    entities.append(entity_stix)
                 elif match[RESULT_FORMAT_CATEGORY] == "Attack-Pattern.x_mitre_id":
                     entity = self.api.attack_pattern.read(
                         filters={
@@ -170,8 +180,18 @@ class ImportDocument(InternalFileInputConnector):
                             f"found. Is the MITRE Connector activated?"
                         )
                         continue
-
-                    entities.append(entity["standard_id"])
+                    entity_stix_bundle = self.helper.api.stix2.export_entity(
+                        entity["entity_type"], entity["id"]
+                    )
+                    if len(entity_stix_bundle["objects"]) == 0:
+                        raise ValueError("Entity cannot be found or exported")
+                    entity_stix = [
+                        object
+                        for object in entity_stix_bundle["objects"]
+                        if "x_opencti_id" in object
+                        and object["x_opencti_id"] == entity["id"]
+                    ][0]
+                    entities.append(entity_stix)
                 else:
                     observable = None
                     if match[RESULT_FORMAT_CATEGORY] == "Autonomous-System.number":
@@ -286,7 +306,21 @@ class ImportDocument(InternalFileInputConnector):
                         observables.append(observable)
 
             elif match[RESULT_FORMAT_TYPE] == ENTITY_CLASS:
-                entities.append(match[RESULT_FORMAT_MATCH])
+                stix_type = "-".join(
+                    x[:1].upper() + x[1:]
+                    for x in match[RESULT_FORMAT_CATEGORY].split("_")
+                )
+                entity_stix_bundle = self.helper.api.stix2.export_entity(
+                    stix_type, match[RESULT_FORMAT_MATCH]
+                )
+                if len(entity_stix_bundle["objects"]) == 0:
+                    raise ValueError("Entity cannot be found or exported")
+                entity_stix = [
+                    object
+                    for object in entity_stix_bundle["objects"]
+                    if object["id"] == match[RESULT_FORMAT_MATCH]
+                ][0]
+                entities.append(entity_stix)
             else:
                 self.logger.info("Odd data received: {}".format(match))
 
@@ -302,6 +336,16 @@ class ImportDocument(InternalFileInputConnector):
         if len(observables) == 0 and len(entities_ids) == 0:
             return []
         observables_ids = [o["id"] for o in observables]
+        ids = []
+        entities_ids = []
+        for o in observables:
+            if o["id"] not in ids:
+                observables_ids.append(o["id"])
+                ids.append(o["id"])
+        for e in entities_ids:
+            if e["id"] not in ids:
+                entities_ids.append(e["id"])
+                ids.append(e["id"])
         if entity is not None:
             entity_stix_bundle = self.api.stix2.export_entity(
                 entity["entity_type"], entity["id"]
@@ -416,6 +460,7 @@ class ImportDocument(InternalFileInputConnector):
                 },
             )
             observables.append(report)
+        observables = observables + entities_ids
         bundles_sent = []
         if len(observables) > 0:
             bundle = stix2.Bundle(objects=observables, allow_custom=True)

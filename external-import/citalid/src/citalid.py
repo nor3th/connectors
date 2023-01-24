@@ -3,9 +3,9 @@ import os
 import sys
 import time
 from datetime import datetime
-from dateutil.parser import parse
 
 import yaml
+from dateutil.parser import parse
 from pycti import OpenCTIConnectorHelper, get_config_variable
 
 
@@ -129,7 +129,7 @@ class Citalid:
             else:
                 timestamp = current_state["last_timestamp"]
 
-            now = datetime.utcfromtimestamp(timestamp)
+            now = datetime.now()
             friendly_name = "Citalid run @ " + now.strftime("%Y-%m-%d %H:%M:%S")
             work_id = self.helper.api.work.initiate_work(
                 self.helper.connect_id, friendly_name

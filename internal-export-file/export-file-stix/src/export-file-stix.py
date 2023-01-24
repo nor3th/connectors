@@ -29,7 +29,7 @@ class ExportFileStix:
             self.helper.log_info(
                 "Exporting: " + entity_id + "(" + export_type + ") to " + file_name
             )
-            bundle = self.helper.api.stix2.export_entity(
+            bundle = self.helper.api_impersonate.stix2.export_entity(
                 entity_type, entity_id, export_type, max_marking
             )
             json_bundle = json.dumps(bundle, indent=4)
@@ -59,7 +59,7 @@ class ExportFileStix:
                 + " to "
                 + file_name
             )
-            bundle = self.helper.api.stix2.export_list(
+            bundle = self.helper.api_impersonate.stix2.export_list(
                 entity_type,
                 list_params["search"],
                 list_params["filters"],
@@ -67,18 +67,30 @@ class ExportFileStix:
                 list_params["orderMode"],
                 max_marking,
                 list_params.get("types"),
+                list_params.get("elementId"),
                 list_params.get("fromId"),
                 list_params.get("toId"),
+                list_params.get("elementWithTargetTypes"),
                 list_params.get("fromTypes"),
                 list_params.get("toTypes"),
+                list_params.get("relationship_type"),
             )
             json_bundle = json.dumps(bundle, indent=4)
             self.helper.log_info(
                 "Uploading: " + entity_type + "/" + export_type + " to " + file_name
             )
-            self.helper.api.stix_domain_object.push_list_export(
-                entity_type, file_name, json_bundle, json.dumps(list_params)
-            )
+            if entity_type == "Stix-Cyber-Observable":
+                self.helper.api.stix_cyber_observable.push_list_export(
+                    file_name, json_bundle, json.dumps(list_params)
+                )
+            elif entity_type == "Stix-Core-Object":
+                self.helper.api.stix_core_object.push_list_export(
+                    entity_type, file_name, json_bundle, json.dumps(list_params)
+                )
+            else:
+                self.helper.api.stix_domain_object.push_list_export(
+                    entity_type, file_name, json_bundle, json.dumps(list_params)
+                )
             self.helper.log_info(
                 "Export done: " + entity_type + "/" + export_type + " to " + file_name
             )

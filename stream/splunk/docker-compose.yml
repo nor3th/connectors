@@ -1,7 +1,7 @@
 version: "3"
 services:
   connector-splunk:
-    image: opencti/connector-splunk:5.3.13
+    image: opencti/connector-splunk:5.5.2
     environment:
       - OPENCTI_URL=http://localhost
       - OPENCTI_TOKEN=ChangeMe
@@ -9,7 +9,6 @@ services:
       - CONNECTOR_TYPE=STREAM
       - CONNECTOR_LIVE_STREAM_ID=live # ID of the live stream created in the OpenCTI UI
       - CONNECTOR_LIVE_STREAM_LISTEN_DELETE=true
-      - CONNECTOR_LIVE_STREAM_WITH_INFERENCES=false
       - CONNECTOR_LIVE_STREAM_NO_DEPENDENCIES=true
       - "CONNECTOR_NAME=OpenCTI Splunk Connector"
       - CONNECTOR_SCOPE=elastic
@@ -22,4 +21,5 @@ services:
       - SPLUNK_SSL_VERIFY=true
       - SPLUNK_APP=search
       - SPLUNK_KV_STORE_NAME=opencti
+      - SPLUNK_IGNORE_TYPES=label,marking-definition,identity
     restart: always

@@ -4,11 +4,11 @@ This connector enables you to bring the information from [Maltiverse](https://ma
 
 ## Installation
 
-There is a [`docker-compose.yml`](docker-compose.yml) example you can use to enable this connector as explained in the [official documentation](https://luatix.notion.site/Connectors-4586c588462d4a1fb5e661f2d9837db8).
+There is a [`docker-compose.yml`](docker-compose.yml) example you can use to enable this connector as explained in the [official documentation](https://filigran.notion.site/Connectors-4586c588462d4a1fb5e661f2d9837db8).
 
 ### Requirements
 
-- OpenCTI Platform >= 5.3.13
+- OpenCTI Platform >= 5.5.2
 
 ### Configuration
 

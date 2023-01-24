@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import traceback
 
 import magic
 import yaml
@@ -52,6 +53,9 @@ class SentinelOneThreats:
             ["sentinelone_threats", "cooldown_seconds"],
             config,
         )
+
+        if isinstance(self.cooldown_seconds, str):
+            self.cooldown_seconds = int(self.cooldown_seconds)
 
         self.skip_false_positives = get_config_variable(
             "SENTINELONE_THREATS_SKIP_FALSE_POSITIVES",
@@ -176,7 +180,7 @@ class SentinelOneThreats:
 
                         # If include certain extensions and not in the list, skip processing
                         if self.include_file_extensions:
-                            if not file_ext in self.include_file_extensions:
+                            if file_ext not in self.include_file_extensions:
                                 self.helper.log_info(
                                     f"Skipping as it did not match a file extension in the included list: {file_ext}"
                                 )
@@ -227,21 +231,22 @@ class SentinelOneThreats:
                                 id=response["id"], label_id=label["id"]
                             )
 
-                self.helper.log_info(
-                    f"Re-checking for new threats in {self.cooldown_seconds} seconds..."
-                )
-
             except (KeyboardInterrupt, SystemExit):
                 self.helper.log_info("Connector stop")
                 sys.exit(0)
 
             except Exception as e:
-                self.helper.log_error(str(e))
+                self.helper.log_error(
+                    f"Exception: {e}, traceback: {traceback.format_exc()}"
+                )
 
             if self.helper.connect_run_and_terminate:
                 self.helper.log_info("Connector stop")
                 sys.exit(0)
 
+            self.helper.log_info(
+                f"Re-checking for new threats in {self.cooldown_seconds} seconds..."
+            )
             time.sleep(self.cooldown_seconds)
 
     def artifact_exists_opencti(self, sha1):

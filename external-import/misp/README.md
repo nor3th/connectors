@@ -28,10 +28,12 @@ If you are using it independently, remember that the connector will try to conne
 | `misp_key`                               | `MISP_KEY`                        | Yes          | The MISP instance key.                                                                               |
 | `misp_ssl_verify`                        | `MISP_SSL_VERIFY`                 | Yes          | A boolean (`True` or `False`), check if the SSL certificate is valid when using `https`.             |
 | `misp_datetime_attribute`                | `MISP_DATETIME_ATTRIBUTE`         | Yes          | The attribute to be used in filter to query new MISP events.                                         |
+| `misp_report_description_attribute_filter`                | `MISP_REPORT_DESCRIPTION_ATTRIBUTE_FILTER`         | No          |  Filter to be used to find the attribute with report description (example: "type=comment,category=Internal reference").                                         |
 | `misp_create_reports`                    | `MISP_CREATE_REPORTS`             | Yes          | A boolean (`True` or `False`), create reports for each imported MISP event.                          |
 | `misp_create_object_observables`         | `MISP_CREATE_OBJECT_OBSERVABLES`         | Yes          | A boolean (`True` or `False`), create a text observable for each imported MISP object.               |
 | `misp_create_observables`                | `MISP_CREATE_OBSERVABLES`         | Yes          | A boolean (`True` or `False`), create an observable for each imported MISP attribute.                |
 | `misp_create_indicators`                 | `MISP_CREATE_INDICATORS`          | Yes          | A boolean (`True` or `False`), create an indicator for each imported MISP attribute.                 |
+| `misp_create_tags_as_labels`             | `MISP_CREATE_TAGS_AS_LABELS`          | No          | A boolean (`True` or `False`), create tags as labels.                 |
 | `misp_report_class`                      | `MISP_REPORT_CLASS`               | No           | If `create_reports` is `True`, specify the `report_class` (category), default is `MISP Event`        |
 | `misp_import_from_date`                  | `MISP_IMPORT_FROM_DATE`           | No           | A date formatted `YYYY-MM-DD`, only import events created after this date.                           |
 | `misp_import_tags`                       | `MISP_IMPORT_TAGS`                | No           | A list of tags separated with `,`, only import events with these tags.                               |
@@ -77,12 +79,12 @@ INFO:root:Fetching MISP events with args: {"tags": {"OR": ["APT", "Threat Type:A
 ```
 Take the query and do a curl test to see if MISP actually returns any events.
 ```
-curl -i 
--H "Accept: application/json" 
--H "content-type: application/json" 
+curl -i
+-H "Accept: application/json"
+-H "content-type: application/json"
 -H "Authorization: YOUR API KEY"
 --data '{"tags": {"OR": ["APT", "Threat Type:APT"]}, "date_from": "2020-06-16", "limit": 50, "page": 1}'
--X POST 
+-X POST
 http://YOURMISP.SERVER
 ```
 You can also save your tags in a tags.json file and then simply reference curl to the file with `--data "@tags.json"`

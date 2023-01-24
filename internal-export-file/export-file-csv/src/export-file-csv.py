@@ -114,15 +114,21 @@ class ExportFileCsv:
                 + ") to "
                 + file_name
             )
-            entity_data = self.helper.api.stix_domain_object.read(id=entity_id)
+            entity_data = self.helper.api_impersonate.stix_domain_object.read(
+                id=entity_id
+            )
             if entity_data is None:
-                entity_data = self.helper.api.stix_cyber_observable.read(id=entity_id)
+                entity_data = self.helper.api_impersonate.stix_cyber_observable.read(
+                    id=entity_id
+                )
             entities_list = []
             if "objectsIds" in entity_data:
                 for id in entity_data["objectsIds"]:
-                    entity = self.helper.api.stix_domain_object.read(id=id)
+                    entity = self.helper.api_impersonate.stix_domain_object.read(id=id)
                     if entity is None:
-                        entity = self.helper.api.stix_cyber_observable.read(id=id)
+                        entity = self.helper.api_impersonate.stix_cyber_observable.read(
+                            id=id
+                        )
                     if entity is not None:
                         del entity["objectLabelIds"]
                         entities_list.append(entity)
@@ -200,32 +206,36 @@ class ExportFileCsv:
                 final_entity_type = "Stix-Cyber-Observable"
 
             # List
+            print(list_params)
             lister = {
-                "Stix-Domain-Object": self.helper.api.stix_domain_object.list,
-                "Attack-Pattern": self.helper.api.attack_pattern.list,
-                "Campaign": self.helper.api.campaign.list,
-                "Event": self.helper.api.event.list,
-                "Note": self.helper.api.note.list,
-                "Observed-Data": self.helper.api.observed_data.list,
-                "Opinion": self.helper.api.opinion.list,
-                "Report": self.helper.api.report.list,
-                "Course-Of-Action": self.helper.api.course_of_action.list,
-                "Identity": self.helper.api.identity.list,
-                "Indicator": self.helper.api.indicator.list,
-                "Infrastructure": self.helper.api.infrastructure.list,
-                "Intrusion-Set": self.helper.api.intrusion_set.list,
-                "Location": self.helper.api.location.list,
-                "Language": self.helper.api.language.list,
-                "Malware": self.helper.api.malware.list,
-                "Threat-Actor": self.helper.api.threat_actor.list,
-                "Tool": self.helper.api.tool.list,
-                "Channel": self.helper.api.channel.list,
-                "Narrative": self.helper.api.narrative.list,
-                "Vulnerability": self.helper.api.vulnerability.list,
-                "Incident": self.helper.api.incident.list,
-                "Stix-Cyber-Observable": self.helper.api.stix_cyber_observable.list,
-                "Stix-Core-Relationship": self.helper.api.stix_core_relationship.list,
-                "stix-core-relationship": self.helper.api.stix_core_relationship.list,
+                "Stix-Core-Object": self.helper.api_impersonate.stix_core_object.list,
+                "Stix-Domain-Object": self.helper.api_impersonate.stix_domain_object.list,
+                "Attack-Pattern": self.helper.api_impersonate.attack_pattern.list,
+                "Campaign": self.helper.api_impersonate.campaign.list,
+                "Channel": self.helper.api_impersonate.channel.list,
+                "Event": self.helper.api_impersonate.event.list,
+                "Note": self.helper.api_impersonate.note.list,
+                "Observed-Data": self.helper.api_impersonate.observed_data.list,
+                "Opinion": self.helper.api_impersonate.opinion.list,
+                "Report": self.helper.api_impersonate.report.list,
+                "Grouping": self.helper.api_impersonate.grouping.list,
+                "Case": self.helper.api_impersonate.case.list,
+                "Course-Of-Action": self.helper.api_impersonate.course_of_action.list,
+                "Identity": self.helper.api_impersonate.identity.list,
+                "Indicator": self.helper.api_impersonate.indicator.list,
+                "Infrastructure": self.helper.api_impersonate.infrastructure.list,
+                "Intrusion-Set": self.helper.api_impersonate.intrusion_set.list,
+                "Location": self.helper.api_impersonate.location.list,
+                "Language": self.helper.api_impersonate.language.list,
+                "Malware": self.helper.api_impersonate.malware.list,
+                "Threat-Actor": self.helper.api_impersonate.threat_actor.list,
+                "Tool": self.helper.api_impersonate.tool.list,
+                "Narrative": self.helper.api_impersonate.narrative.list,
+                "Vulnerability": self.helper.api_impersonate.vulnerability.list,
+                "Incident": self.helper.api_impersonate.incident.list,
+                "Stix-Cyber-Observable": self.helper.api_impersonate.stix_cyber_observable.list,
+                "Stix-Core-Relationship": self.helper.api_impersonate.stix_core_relationship.list,
+                "stix-core-relationship": self.helper.api_impersonate.stix_core_relationship.list,
             }
             do_list = lister.get(
                 final_entity_type,
@@ -241,8 +251,14 @@ class ExportFileCsv:
                 relationship_type=list_params["relationship_type"]
                 if "relationship_type" in list_params
                 else None,
+                elementId=list_params["elementId"]
+                if "elementId" in list_params
+                else None,
                 fromId=list_params["fromId"] if "fromId" in list_params else None,
                 toId=list_params["toId"] if "toId" in list_params else None,
+                elementWithTargetTypes=list_params["elementWithTargetTypes"]
+                if "elementWithTargetTypes" in list_params
+                else None,
                 fromTypes=list_params["fromTypes"]
                 if "fromTypes" in list_params
                 else None,
@@ -255,13 +271,17 @@ class ExportFileCsv:
             self.helper.log_info(
                 "Uploading: " + entity_type + "/" + export_type + " to " + file_name
             )
-            if entity_type != "Stix-Cyber-Observable":
-                self.helper.api.stix_domain_object.push_list_export(
+            if entity_type == "Stix-Cyber-Observable":
+                self.helper.api.stix_cyber_observable.push_list_export(
+                    file_name, csv_data, json.dumps(list_params)
+                )
+            elif entity_type == "Stix-Core-Object":
+                self.helper.api.stix_core_object.push_list_export(
                     entity_type, file_name, csv_data, json.dumps(list_params)
                 )
             else:
-                self.helper.api.stix_cyber_observable.push_list_export(
-                    file_name, csv_data, json.dumps(list_params)
+                self.helper.api.stix_domain_object.push_list_export(
+                    entity_type, file_name, csv_data, json.dumps(list_params)
                 )
             self.helper.log_info(
                 "Export done: " + entity_type + "/" + export_type + " to " + file_name

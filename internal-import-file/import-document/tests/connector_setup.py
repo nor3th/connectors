@@ -1,11 +1,12 @@
 import uuid
 from typing import Optional
 
-from pycti import StixCyberObservableTypes
-from stix2 import Bundle
 from dateutil.parser import parse
-from src.reportimporter.core import ImportDocument
-from pycti.connector.tests.test_class import ConnectorTest
+from pycti import StixCyberObservableTypes
+from pycti.test_plugin.test_class import ConnectorTest
+from stix2 import Bundle
+
+from src.core import ImportDocument
 
 
 class ImportDocumentTest(ConnectorTest):

@@ -9,20 +9,19 @@ from pycti import Report, StixCoreRelationship
 from pycti.connector.connector_types.connector_base_types import \
     InternalFileInputConnector
 from pycti.connector.connector_types.connector_settings import ConnectorConfig
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from stix2 import Bundle
 
-from src.reportimporter.constants import (ENTITY_CLASS, OBSERVABLE_CLASS,
-                                          RESULT_FORMAT_CATEGORY,
-                                          RESULT_FORMAT_MATCH,
-                                          RESULT_FORMAT_TYPE)
-from src.reportimporter.models import Entity, EntityConfig, Observable
-from src.reportimporter.report_parser import ReportParser
-from src.reportimporter.util import MyConfigParser
+from src.constants import (ENTITY_CLASS, OBSERVABLE_CLASS,
+                           RESULT_FORMAT_CATEGORY, RESULT_FORMAT_MATCH,
+                           RESULT_FORMAT_TYPE)
+from src.models import Entity, EntityConfig, Observable
+from src.report_parser import ReportParser
+from src.util import MyConfigParser
 
 
 class ImportDocumentConfig(ConnectorConfig):
-    create_indicator: bool = True
+    create_indicator: bool = Field(env="app_create_indicator", alias="app_create_indicator", default=True)
 
 
 class ImportDocument(InternalFileInputConnector):
